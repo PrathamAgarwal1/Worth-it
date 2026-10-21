@@ -35,6 +35,19 @@
   // Diagnostics: open DevTools on YouTube and filter the console by "Worth It".
   const log = (...args) => console.debug("[Worth It?]", ...args);
 
+  /** New context from the background; re-score the page if it changes any feature. */
+  function setCtx(c) {
+    if (!c) return;
+    const changed = c.lateNight !== ctx.lateNight || (c.depth >= W.DEEP_SESSION) !== (ctx.depth >= W.DEEP_SESSION);
+    ctx = { depth: c.depth, lateNight: c.lateNight };
+    if (changed) rescore();
+  }
+  function rescore() {
+    info.clear();
+    document.querySelectorAll("[data-wi-vid]").forEach((c) => delete c.dataset.wiVid);
+    scan();
+  }
+
   // ---- Reading a video card -------------------------------------------------------------
   function cardInfo(card) {
     const a = card.querySelector('a[href*="/watch?v="]');
@@ -86,26 +99,20 @@
     const host = card.querySelector(THUMB) || card;
     host.classList.add("wi-host");
     let badge = host.querySelector(":scope > .wi-badge");
-    // Quiet by default: only videos with something to say get a badge, and it's a small icon
-    // whose words appear when you hover the video.
+    // Every video gets a small chip with its worth-it %; the hook's name appears when you hover.
     const first = v.hooks[0] && W.BY_ID[v.hooks[0]];
     const more = v.hooks.length > 1 ? ` +${v.hooks.length - 1}` : "";
     const emojis = v.hooks.map((h) => W.BY_ID[h].emoji).join("");
-    let cls = "wi-badge", icon = "", text = "";
+    let cls = "wi-badge", icon = `${pct(v.s.worthIt)}${emojis ? ` ${emojis}` : ""}`, text = first ? `${first.label}${more}` : "";
     if (v.s.junk) {
       cls += " wi-badge-junk";
-      icon = first.emoji;
       text = `junk food · ${first.label}${more}`;
     } else if (v.s.worthIt >= W.WORTH_OK && v.s.evidence.enough) {
       // A good track record (from your own ratings) wins over packaging.
       cls += " wi-badge-good";
-      icon = `✓${emojis}`;
-      text = `worth it ${pct(v.s.worthIt)}`;
-    } else if (first) {
-      icon = emojis;
-      text = `${first.label}${more}`;
+      icon = `✓ ${icon}`;
     }
-    card.dataset.wiBadge = settings.badges && icon ? "1" : "0";
+    card.dataset.wiBadge = settings.badges ? "1" : "0";
     if (card.dataset.wiBadge === "0") {
       if (badge) badge.remove();
       return;
@@ -115,7 +122,7 @@
       host.appendChild(badge);
     }
     badge.className = cls;
-    badge.innerHTML = `<span class="wi-b-icon">${esc(icon)}</span><span class="wi-b-text">${esc(text)}</span>`;
+    badge.innerHTML = `<span class="wi-b-icon">${esc(icon)}</span>${text ? `<span class="wi-b-text">${esc(text)}</span>` : ""}`;
     badge.title = tooltip(v);
   }
 
@@ -123,7 +130,15 @@
     if (card.parentElement && card.parentElement.closest(CARD)) return;   // nested renderer; handled by outer card
     if (card.querySelector('a[href*="/shorts/"]')) return;
     const ci = cardInfo(card);
-    if (!ci) return;
+    if (!ci) {
+      // YouTube recycles card elements; one that's emptied out mustn't keep the old video's marks.
+      if (card.dataset.wiVid) {
+        delete card.dataset.wiVid;
+        card.classList.remove("wi-junk", "wi-blur");
+        card.querySelectorAll(".wi-badge").forEach((b) => b.remove());
+      }
+      return;
+    }
     const known = info.get(ci.id);
     const same = known && known.title === ci.title && known.channel === ci.channel;
     // Re-render only if the video changed, or YouTube re-drew the thumbnail and dropped our badge.
@@ -203,8 +218,10 @@
       renderPanel();
     }, 300);
   }
+  const isShown = (el) => (el.checkVisibility ? el.checkVisibility() : el.getClientRects().length > 0);
   function renderPanel() {
-    const onPage = [...document.querySelectorAll("[data-wi-vid]")].map((c) => info.get(c.dataset.wiVid)).filter(Boolean);
+    // YouTube keeps the pages you came from (e.g. the home feed) in the DOM, hidden: skip those.
+    const onPage = [...document.querySelectorAll("[data-wi-vid]")].filter(isShown).map((c) => info.get(c.dataset.wiVid)).filter(Boolean);
     const uniq = [...new Map(onPage.map((v) => [v.id, v])).values()];
     if ((!uniq.length && !watch) || location.pathname.startsWith("/shorts")) {
       if (panel) panel.remove();
@@ -285,12 +302,18 @@
     const h1 = document.querySelector("ytd-watch-metadata h1, h1.ytd-watch-metadata, #title h1");
     const title = (h1 && h1.textContent.trim()) || document.title.replace(/^\(\d+\)\s*/, "").replace(/\s*-\s*YouTube$/, "").trim();
     const ch = document.querySelector("ytd-watch-metadata ytd-channel-name a, #owner ytd-channel-name a, #channel-name a");
-    return { title: title === "YouTube" ? "" : title, channel: ch ? ch.textContent.trim() : "" };
+    const flexy = document.querySelector("ytd-watch-flexy");
+    return { title: title === "YouTube" ? "" : title, channel: ch ? ch.textContent.trim() : "",
+             videoId: flexy && flexy.getAttribute("video-id") };
   }
+  let lastMeta = null;   // {id, title}: what the watch page showed for the previous video in this tab
 
   async function startWatch(id) {
+    // The card you clicked already knows the title and channel, so the prompt is right even if you
+    // leave at once. The watch page is used to confirm them, or when you came from a link.
+    const card = info.get(id);
     const c = await send("watchStart", { id });
-    if (c) ctx = { depth: c.depth, lateNight: c.lateNight };
+    setCtx(c);
     // Coming back to a video you didn't finish continues the same viewing: same key, time adds up.
     const resume = c && c.resume;
     const now = Date.now();
@@ -298,6 +321,8 @@
               watchedSec: resume ? resume.watchedSec : 0, durationSec: 0 };
     log("watching", id, resume ? `(continuing, ${resume.watchedSec}s so far)` : "", c ? "" : "(background not responding)");
     const mine = watch;
+    if (card) Object.assign(mine, { title: card.title, channel: card.channel, hooks: card.hooks });
+    const prev = lastMeta;
     let tries = 0;
     clearInterval(metaTimer);
     clearInterval(tick);
@@ -305,11 +330,16 @@
     tick = setInterval(poll, POLL_MS);
     metaTimer = setInterval(async () => {   // the title renders a moment after navigation
       const m = readWatchMeta();
-      if ((m.title && m.channel) || ++tries > 20) {
+      // After an in-app navigation YouTube shows the previous video's title for a moment.
+      const stale = (m.videoId && m.videoId !== id) || (prev && prev.id !== id && m.title === prev.title);
+      const done = m.title && m.channel && !stale;
+      if (done || ++tries > 20) {
         clearInterval(metaTimer);
         if (watch !== mine) return;
-        mine.title = m.title || info.get(id)?.title || "";
-        mine.channel = m.channel;
+        if (done) lastMeta = { id, title: m.title };
+        mine.title = (done && m.title) || mine.title;
+        mine.channel = (done && m.channel) || mine.channel;
+        if (!mine.title) return;   // never found it: leave it untitled rather than guess
         if (!thumbArousal.get(id)) {
           const a = await send("thumb", { id });
           if (a != null) thumbArousal.set(id, a);
@@ -318,15 +348,16 @@
       }
     }, 500);
     clearInterval(checkpoint);
-    checkpoint = setInterval(() => watch && watch.watchedSec >= MIN_WATCH_SEC && send("watchEnd", { watch: snapshot() }), 30000);
+    checkpoint = setInterval(() => watch && watch.watchedSec >= MIN_WATCH_SEC && send("watchEnd", { watch: snapshot(false) }), 30000);
     schedulePanel();
   }
 
-  const snapshot = () => ({ ...watch, watchedSec: Math.round(watch.watchedSec) });
+  // ended: you left the video (vs. a checkpoint while it's still playing).
+  const snapshot = (ended) => ({ ...watch, watchedSec: Math.round(watch.watchedSec), ended });
 
   async function endWatch() {
     if (!watch) return;
-    const w = snapshot();
+    const w = snapshot(true);
     watch = null;
     clearInterval(tick);
     clearInterval(checkpoint);
@@ -335,7 +366,9 @@
     log("left video", w.id, `${w.watchedSec}s watched`, w.watchedSec < MIN_WATCH_SEC ? `(under ${MIN_WATCH_SEC}s: not asking)` : "");
     if (w.watchedSec < MIN_WATCH_SEC) return;
     await send("watchEnd", { watch: w });
-    if (await mayAsk(w)) showPrompt(w);
+    // The video you just left always wins over an older prompt still on screen.
+    if (await mayAsk(w, true)) showPrompt(w);
+    else send("skip", { id: w.id, ts: w.ts });   // not asking: don't bring it up later either
   }
 
   // How often to ask. Videos it doesn't ask about still teach it, from how much you watched.
@@ -343,14 +376,18 @@
   //   often:               after every video watched ≥ 15 s
   const ASK = { often: { minSec: MIN_WATCH_SEC, gapMin: 0 }, sometimes: { minSec: 60, gapMin: 10 } };
   const askMode = () => (settings.askRating === false ? "never" : settings.askMode || "sometimes");
-  async function mayAsk(w) {
+  async function mayAsk(w, replace = false) {
     const rule = ASK[askMode()];
-    if (!rule || prompt || w.watchedSec < rule.minSec) return false;
-    const { lastAskTs = 0 } = await chrome.storage.local.get("lastAskTs");
-    return Date.now() - lastAskTs >= rule.gapMin * 60000;
+    if (!rule || (prompt && !replace) || w.watchedSec < rule.minSec) return false;
+    try {
+      const { lastAskTs = 0 } = await chrome.storage.local.get("lastAskTs");
+      return Date.now() - lastAskTs >= rule.gapMin * 60000;
+    } catch (e) {
+      return false;   // extension was reloaded; this tab's script is orphaned
+    }
   }
 
-  /** Ask about a recent unrated video, e.g. one whose tab you closed mid-watch. */
+  /** Ask about a video you left in the last few minutes without being asked, e.g. by closing its tab. */
   async function askPending() {
     if (prompt || askMode() === "never") return;
     const p = await send("pendingRating");
@@ -358,8 +395,9 @@
   }
 
   let prompt = null;
+  let closePrompt = null;
   function showPrompt(w) {
-    if (prompt) prompt.remove();
+    if (closePrompt) closePrompt(true);
     let mood = null;
     chrome.storage.local.set({ lastAskTs: Date.now() });
     prompt = document.createElement("div");
@@ -379,12 +417,15 @@
         <div class="wi-mood"><span>Right now I feel</span>${[["calm", "😌"], ["good", "🙂"], ["tired", "😴"], ["stressed", "😣"]]
           .map(([m, e]) => `<button data-m="${m}">${e} ${m}</button>`).join("")}</div>
       </div>`;
+    const el = prompt;
     const close = (dismissed) => {
-      if (!prompt) return;
+      if (prompt !== el) return;
+      clearTimeout(timer);
       if (dismissed) send("dismiss", { id: w.id, ts: w.ts });
-      prompt.remove();
-      prompt = null;
+      el.remove();
+      prompt = closePrompt = null;
     };
+    closePrompt = close;
     let timer = setTimeout(() => close(true), 20000);
     prompt.addEventListener("click", (e) => {
       const m = e.target.closest("[data-m]");
@@ -392,7 +433,7 @@
       const a = e.target.closest("[data-a]");
       const thanks = (q) => {
         clearTimeout(timer);
-        prompt.innerHTML = `<div class="wi-thanks">${q}</div>`;
+        el.innerHTML = `<div class="wi-thanks">${q}</div>`;
         setTimeout(() => close(false), 1200);
       };
       if (e.target.closest(".wi-more")) {
@@ -422,8 +463,7 @@
 
   // ---- Page lifecycle --------------------------------------------------------------------
   async function onPage() {
-    const c = await send("context");
-    if (c) ctx = c;
+    setCtx(await send("context"));
     const id = location.pathname === "/watch" ? new URLSearchParams(location.search).get("v") : null;
     if (id && (!watch || watch.id !== id)) {
       await endWatch();
@@ -450,7 +490,7 @@
   window.addEventListener("popstate", checkUrl);
   window.addEventListener("pagehide", () => {
     flushImpressions();
-    if (watch && watch.watchedSec >= MIN_WATCH_SEC) send("watchEnd", { watch: snapshot() });
+    if (watch && watch.watchedSec >= MIN_WATCH_SEC) send("watchEnd", { watch: snapshot(true) });
   });
   document.addEventListener("visibilitychange", () => document.visibilityState === "hidden" && flushImpressions());
 
@@ -460,11 +500,7 @@
     if (area !== "local") return;
     if (changes.settings) settings = { ...settings, ...changes.settings.newValue };
     if (changes.model) model = changes.model.newValue || W.freshModel();
-    if (changes.settings || changes.model) {
-      info.clear();
-      document.querySelectorAll("[data-wi-vid]").forEach((c) => delete c.dataset.wiVid);
-      scan();
-    }
+    if (changes.settings || changes.model) rescore();
   });
 
   (async () => {

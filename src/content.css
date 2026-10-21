@@ -18,7 +18,7 @@ html[dark] {
   --wi-line: rgba(255, 255, 255, 0.12);
 }
 
-/* ---- Badges on thumbnails: a small icon; the words appear when you hover the video ---- */
+/* ---- Badges on thumbnails: the worth-it % and hook icons; the words appear when you hover the video ---- */
 .wi-host { position: relative !important; }
 .wi-badge {
   position: absolute;
@@ -33,10 +33,10 @@ html[dark] {
   border-radius: 999px;
   background: var(--wi-chip);
   color: #fff;
-  font: 500 11px/1.5 Roboto, Arial, sans-serif;
+  font: 500 12px/1.5 Roboto, Arial, sans-serif;
   white-space: nowrap;
   overflow: hidden;
-  opacity: 0.75;
+  opacity: 0.85;
   pointer-events: auto;
   cursor: help;
   transition: opacity 0.15s ease;

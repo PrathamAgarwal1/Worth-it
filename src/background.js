@@ -50,6 +50,7 @@ const handlers = {
   watchEnd: (m) => S.watchEnd(m.watch),
   rate: (m) => S.rate(m),
   dismiss: (m) => S.dismiss(m),
+  skip: (m) => S.skip(m),
   later: (m) => S.later(m),
   pendingRating: () => S.pendingRating(),
   reset: () => S.reset(),

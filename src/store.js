@@ -9,6 +9,7 @@
   const MAX_WATCHES = 2000;
   const MAX_THUMBS = 3000;
   const MIN_WATCH_SEC = 15;
+  const CATCH_UP_MS = 10 * 60 * 1000;   // ask about a video you left unasked only this soon after
   const DEPTH_BUCKETS = ["1", "2–4", "5–9", "10–19", "20+"];
 
   const DEFAULT_SETTINGS = { blur: true, badges: true, askRating: true, askMode: "sometimes", lambda: 1 };
@@ -110,7 +111,8 @@
       const i = id ? findOpen(st.watches, id, now) : -1;
       if (i >= 0) {
         const [w] = st.watches.splice(i, 1);   // move to the end: most recent
-        Object.assign(w, { lastTs: now, visits: (w.visits || 1) + 1, later: false, dismissed: false });
+        Object.assign(w, { lastTs: now, visits: (w.visits || 1) + 1, later: false, dismissed: false, skipped: false,
+                           endTs: null });
         st.watches.push(w);
         resume = { ts: w.ts, watchedSec: w.watchedSec };
       }
@@ -124,12 +126,17 @@
     return { depth: live ? session.depth : 0, lateNight: W.isLateNight(new Date()) };
   }
 
-  /** w: {id, title, channel, hooks, ts, lastTs, depth, watchedSec, durationSec}; ts is the first visit. */
+  /**
+   * w: {id, title, channel, hooks, ts, lastTs, depth, watchedSec, durationSec, ended}; ts is the first visit.
+   * ended is false for a checkpoint while the video is still playing, true once you've left it.
+   */
   function watchEnd(w) {
     if (!w || w.watchedSec < MIN_WATCH_SEC) return Promise.resolve(false);
     return serial(["watches", "stats"], (st) => {
       const d = new Date(w.ts);
-      const rec = { ...w, lastTs: w.lastTs || w.ts, hour: d.getHours(), lateNight: W.isLateNight(d), rating: null, mood: null };
+      const { ended, ...rest } = w;
+      const rec = { ...rest, lastTs: w.lastTs || w.ts, hour: d.getHours(), lateNight: W.isLateNight(d), rating: null, mood: null,
+                    endTs: ended ? Date.now() : null };
       const i = st.watches.findIndex((x) => x.id === w.id && x.ts === w.ts);
       if (i >= 0) {
         // Same viewing (checkpoint or a return visit): keep its context, answers and flags.
@@ -181,6 +188,14 @@
     });
   }
 
+  /** Not asked about (e.g. "Sometimes" mode): don't bring it up later. Learns from watch time as usual. */
+  function skip({ id, ts }) {
+    return serial(["watches"], (st) => {
+      const w = st.watches.find((x) => x.id === id && x.ts === ts);
+      if (w && w.rating == null) w.skipped = true;
+    });
+  }
+
   /** "I'll finish it later": learn nothing now, don't ask again until you come back and finish. */
   function later({ id, ts }) {
     return serial(["watches"], (st) => {
@@ -189,14 +204,18 @@
     });
   }
 
-  /** Most recent unrated, unanswered watch from the last 30 minutes (e.g. you closed the tab mid-video). */
+  /**
+   * A video you left in the last few minutes and were never asked about (e.g. you closed its tab).
+   * Videos still playing, in this tab or another, aren't finished, so they're never returned.
+   */
   async function pendingRating() {
     const { watches = [], settings } = await local.get(["watches", "settings"]);
     if (settings && (settings.askRating === false || settings.askMode === "never")) return null;
+    const now = Date.now();
     for (let i = watches.length - 1; i >= 0; i--) {
       const w = watches[i];
-      if (Date.now() - (w.lastTs || w.ts) > SESSION_GAP_MS) continue;
-      if (w.rating == null && !w.dismissed && !w.later && !w.learned) return w;
+      if (!w.endTs || now - w.endTs > CATCH_UP_MS) continue;
+      if (w.rating == null && !w.dismissed && !w.skipped && !w.later && !w.learned) return w;
     }
     return null;
   }
@@ -228,7 +247,7 @@
     });
   }
 
-  root.WorthItStore = { init, recordImpressions, watchStart, watchEnd, context, rate, dismiss, later, pendingRating,
+  root.WorthItStore = { init, recordImpressions, watchStart, watchEnd, context, rate, dismiss, skip, later, pendingRating,
                         cacheThumb, reset, loadDemo, DEPTH_BUCKETS, freshStats, cellsFor, depthBucket,
                         DEFAULT_SETTINGS };
 })(globalThis);

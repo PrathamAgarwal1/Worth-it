@@ -66,31 +66,46 @@
           <div class="ch"><ytd-channel-name><a href="/@${v.channel.replace(/\s/g, "")}">${v.channel}</a></ytd-channel-name></div></div>
       </div></${tag}>`;
 
+    // Like real YouTube, pages you leave stay in the DOM, hidden (the home feed behind a watch page),
+    // and after an in-app navigation the watch page shows the previous video's title for a moment.
     let fakePlayer = null;
     function render() {
       clearInterval(fakePlayer);
       const app = document.getElementById("app");
-      if (location.pathname === "/watch") {
-        const v = VIDEOS.find((x) => x.id === new URLSearchParams(location.search).get("v")) || VIDEOS[0];
-        app.innerHTML = `<div class="watch"><div>
-            <div id="movie_player"><video class="html5-main-video"></video><div id="pt">▶ playing (2× speed)</div></div>
-            <ytd-watch-metadata><h1><yt-formatted-string>${v.title}</yt-formatted-string></h1>
-              <ytd-channel-name><a href="/">${v.channel}</a></ytd-channel-name></ytd-watch-metadata></div>
-          <div id="related">${VIDEOS.filter((x) => x !== v).slice(0, 8).map((x) => card(x, "ytd-compact-video-renderer")).join("")}</div></div>`;
+      if (!app.children.length) {
+        app.innerHTML = `<ytd-browse><div id="contents">${VIDEOS.map((v) => card(v, "ytd-rich-item-renderer")).join("")}</div></ytd-browse>
+          <ytd-watch-flexy hidden><div class="watch"><div>
+            <div id="movie_player"><video class="html5-main-video"></video><div id="pt"></div></div>
+            <ytd-watch-metadata><h1><yt-formatted-string></yt-formatted-string></h1>
+              <ytd-channel-name><a href="/"></a></ytd-channel-name></ytd-watch-metadata></div>
+            <div id="related"></div></div></ytd-watch-flexy>`;
         // Fake playback at 2× speed: the clock advances 0.2 s every 100 ms.
         const video = app.querySelector("video");
-        let t = 0;
-        Object.defineProperty(video, "currentTime", { get: () => t });
+        Object.defineProperty(video, "currentTime", { get: () => video._t || 0 });
         Object.defineProperty(video, "paused", { get: () => false });
         Object.defineProperty(video, "duration", { get: () => 300 });
-        fakePlayer = setInterval(() => {
-          t += 0.2;
-          document.getElementById("pt").textContent = `▶ watched ${Math.round(t)}s (2× speed)`;
-          video.dispatchEvent(new Event("timeupdate"));
-        }, 100);
-      } else {
-        app.innerHTML = `<div id="contents">${VIDEOS.map((v) => card(v, "ytd-rich-item-renderer")).join("")}</div>`;
       }
+      const browse = app.querySelector("ytd-browse"), flexy = app.querySelector("ytd-watch-flexy");
+      const onWatch = location.pathname === "/watch";
+      browse.hidden = onWatch;
+      flexy.hidden = !onWatch;
+      if (!onWatch) return;
+      const v = VIDEOS.find((x) => x.id === new URLSearchParams(location.search).get("v")) || VIDEOS[0];
+      flexy.setAttribute("video-id", v.id);
+      app.querySelector("#related").innerHTML = VIDEOS.filter((x) => x !== v).slice(0, 8).map((x) => card(x, "ytd-compact-video-renderer")).join("");
+      const setMeta = () => {
+        app.querySelector("ytd-watch-metadata yt-formatted-string").textContent = v.title;
+        app.querySelector("ytd-watch-metadata a").textContent = v.channel;
+      };
+      if (app.querySelector("ytd-watch-metadata yt-formatted-string").textContent) setTimeout(setMeta, 1500);   // stale title first
+      else setMeta();
+      const video = app.querySelector("video");
+      video._t = 0;
+      fakePlayer = setInterval(() => {
+        video._t += 0.2;
+        document.getElementById("pt").textContent = `▶ watched ${Math.round(video._t)}s (2× speed)`;
+        video.dispatchEvent(new Event("timeupdate"));
+      }, 100);
     }
     // ?navEvents=0 hides YouTube's navigation events from the extension (fired on an inner element
     // without bubbling), to test that page changes are still noticed from the URL alone.
@@ -125,7 +140,7 @@
       const v = VIDEOS[6];
       chrome.runtime.sendMessage({ type: "loadDemo" }, () =>
         chrome.runtime.sendMessage({ type: "watchEnd", watch: { id: v.id, title: v.title, channel: v.channel,
-          hooks: WorthIt.detectHooks(v.title, 0.8), ts: Date.now(), depth: 4, watchedSec: 140, durationSec: 600 } }, () => {
+          hooks: WorthIt.detectHooks(v.title, 0.8), ts: Date.now(), depth: 4, watchedSec: 140, durationSec: 600, ended: true } }, () => {
           loadContentScript();
           setTimeout(() => document.querySelector(".wi-panel-toggle")?.click(), 1500);
         }));

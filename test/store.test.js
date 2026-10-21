@@ -112,3 +112,20 @@ test("a finished, rated video watched again later is a new viewing", async () =>
   assert.equal(again.resumed, false);
   assert.equal(find("v6").length, 2);
 });
+
+test("only a video you left in the last few minutes, and weren't asked about, is brought up later", async () => {
+  await S.reset();
+  await S.init();
+  const c = await S.watchStart({ id: "v7" });
+  const w = { id: "v7", title: "v7", channel: "Chan", hooks: [], ts: Date.now(), depth: c.depth, watchedSec: 90, durationSec: 900 };
+  await S.watchEnd({ ...w, ended: false });                  // checkpoint: still playing, maybe in another tab
+  assert.equal(await S.pendingRating(), null, "never asks about a video that's still playing");
+  await S.watchEnd({ ...w, ended: true });
+  assert.equal((await S.pendingRating()).id, "v7");
+  find("v7")[0].endTs -= 11 * 60 * 1000;
+  assert.equal(await S.pendingRating(), null, "too long ago to ask about now");
+  find("v7")[0].endTs += 11 * 60 * 1000;
+  await S.skip({ id: "v7", ts: w.ts });
+  assert.equal(await S.pendingRating(), null, "skipped by the 'Sometimes' limit: not brought up later");
+  assert.equal(data.model.nLike, 0, "skipping learns nothing by itself");
+});

@@ -36,7 +36,7 @@ YouTube's recommender learns from what you *click*, which is wanting. Worth It? 
 4. Click **Load unpacked** and pick the `worth-it` folder.
 5. Pin the 🧠 icon, then open YouTube.
 
-To use it, browse normally. Hover a badge to see *why* a video was flagged. After a video, answer "Was that worth it?" (it takes one second). Open the report from the toolbar icon. To see what it looks like before you have data, click **Load demo data** at the bottom of the report.
+To use it, browse normally. Every video shows its **worth-it %**; hover the badge to see *why*. After a video, answer "Was that worth it?" (it takes one second). Open the report from the toolbar icon. To see what it looks like before you have data, click **Load demo data** at the bottom of the report.
 
 ## Privacy
 
