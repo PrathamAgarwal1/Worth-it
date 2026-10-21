@@ -148,6 +148,8 @@ html[dark] {
   transition: background 0.12s ease, filter 0.12s ease;
 }
 .wi-rate button:hover { background: var(--wi-line); filter: none; }
+.wi-rate button.on { background: rgba(42, 120, 214, 0.14); filter: none; }
+.wi-prev { color: var(--wi-muted); font-size: 11px; margin: -4px 0 6px; }
 .wi-more { margin-top: 6px; border: 0; background: none; color: var(--wi-muted); font: 11px Roboto, Arial, sans-serif; cursor: pointer; padding: 0; }
 .wi-more:hover { color: var(--wi-text); }
 .wi-alt { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px; }

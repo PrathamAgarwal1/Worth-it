@@ -50,6 +50,7 @@
       s.watches = s.watches || [];
       s.session = s.session || { lastTs: 0, depth: 0 };
       s.thumbs = s.thumbs || {};
+      mergeDuplicates(s);
     });
     return ready;
   }
@@ -58,6 +59,50 @@
     const cells = hooks.length ? hooks.map((h) => stats.hooks[h]) : [stats.none];
     cells.push(stats.hours[hour], stats.depth[depthBucket(depth)]);
     return cells;
+  }
+
+  /** Add (sign 1) or take back (sign -1) a watch's rating in the running stats. */
+  function tallyRating(stats, w, sign) {
+    if (w.rating == null) return;
+    const cells = cellsFor(stats, w.hooks || [], w.hour, w.depth || 0);
+    if (w.mood) cells.push((stats.moods[w.mood] = stats.moods[w.mood] || cell()));
+    for (const c of cells) {
+      c.rated = Math.max(0, c.rated + sign);
+      c.ratingSum = Math.max(0, c.ratingSum + sign * w.rating);
+      c.worth = Math.max(0, c.worth + sign * (w.rating >= 4 ? 1 : 0));
+    }
+  }
+
+  /** The entry for this video (there's one per video), or -1. */
+  function findEntry(watches, id) {
+    for (let i = watches.length - 1; i >= 0; i--) if (watches[i].id === id) return i;
+    return -1;
+  }
+
+  /**
+   * Older versions saved a new entry each time you watched a video again. Fold those into one entry
+   * per video: watch time and visits add up, the latest answer wins, and the stats count it once.
+   */
+  function mergeDuplicates(st) {
+    if (new Set(st.watches.map((w) => w.id)).size === st.watches.length) return;
+    const keep = new Map();   // id -> newest entry
+    for (let i = st.watches.length - 1; i >= 0; i--) {
+      const w = st.watches[i], k = keep.get(w.id);
+      if (!k) {
+        keep.set(w.id, w);
+        continue;
+      }
+      for (const c of cellsFor(st.stats, w.hooks || [], w.hour, w.depth || 0)) c.watched = Math.max(0, c.watched - 1);
+      tallyRating(st.stats, w, -1);
+      if (k.rating == null && w.rating != null) {
+        Object.assign(k, { rating: w.rating, mood: w.mood, partial: w.partial });
+        tallyRating(st.stats, k, 1);
+      }
+      k.watchedSec += w.watchedSec;
+      k.visits = (k.visits || 1) + (w.visits || 1);
+      k.learned = k.learned || w.learned;
+    }
+    st.watches = st.watches.filter((w) => keep.get(w.id) === w);
   }
 
   /** items: [{id, hooks, clicked, ts, depth}] — videos that were on screen, and whether you clicked. */
@@ -87,18 +132,10 @@
     }
   }
 
-  /** An unfinished, unrated viewing of this video you could be coming back to. */
-  function findOpen(watches, id, now) {
-    for (let i = watches.length - 1; i >= 0; i--) {
-      const x = watches[i];
-      if (x.id === id && x.rating == null && !x.learned && now - (x.lastTs || x.ts) < W.RESUME_DAYS * W.DAY_MS) return i;
-    }
-    return -1;
-  }
-
   /**
-   * Called when a watch page opens: advances the session counter and returns the context. If you're
-   * returning to a video you didn't finish, the same viewing continues (resume: its key and time so far).
+   * Called when a watch page opens: advances the session counter and returns the context. If you've
+   * watched this video before, it continues the same entry (resume: its key, time so far, and your
+   * last answer), so watching again never adds a second entry.
    */
   function watchStart({ id } = {}) {
     return serial(["session", "watches", "model"], (st) => {
@@ -108,13 +145,13 @@
       s.depth = now - s.lastTs > SESSION_GAP_MS ? 1 : s.depth + 1;
       s.lastTs = now;
       let resume = null;
-      const i = id ? findOpen(st.watches, id, now) : -1;
+      const i = id ? findEntry(st.watches, id) : -1;
       if (i >= 0) {
         const [w] = st.watches.splice(i, 1);   // move to the end: most recent
         Object.assign(w, { lastTs: now, visits: (w.visits || 1) + 1, later: false, dismissed: false, skipped: false,
                            endTs: null });
         st.watches.push(w);
-        resume = { ts: w.ts, watchedSec: w.watchedSec };
+        resume = { ts: w.ts, watchedSec: w.watchedSec, rating: w.rating, partial: !!w.partial };
       }
       return { depth: s.depth, lateNight: W.isLateNight(new Date(now)), resume };
     });
@@ -137,12 +174,14 @@
       const { ended, ...rest } = w;
       const rec = { ...rest, lastTs: w.lastTs || w.ts, hour: d.getHours(), lateNight: W.isLateNight(d), rating: null, mood: null,
                     endTs: ended ? Date.now() : null };
-      const i = st.watches.findIndex((x) => x.id === w.id && x.ts === w.ts);
+      const i = findEntry(st.watches, w.id);
       if (i >= 0) {
-        // Same viewing (checkpoint or a return visit): keep its context, answers and flags.
+        // Same video (checkpoint or a return visit): keep its key, context, answers and flags. If the
+        // tab didn't get the time so far (watchStart failed), never let the total go down.
         const old = st.watches[i];
-        st.watches[i] = { ...old, ...rec, hour: old.hour, lateNight: old.lateNight, depth: old.depth,
-                          rating: old.rating, mood: old.mood };
+        const watchedSec = old.ts === w.ts ? w.watchedSec : Math.max(old.watchedSec, w.watchedSec);
+        st.watches[i] = { ...old, ...rec, ts: old.ts, hour: old.hour, lateNight: old.lateNight, depth: old.depth,
+                          rating: old.rating, mood: old.mood, watchedSec };
       } else {
         st.watches.push(rec);
         for (const c of cellsFor(st.stats, w.hooks, rec.hour, w.depth)) c.watched++;
@@ -152,24 +191,24 @@
     });
   }
 
-  /** Your answer to "Was that worth it?" — this is the *liking* signal. */
-  function rate({ id, ts, rating, mood, partial }) {
+  const entry = (watches, id) => watches[findEntry(watches, id)];
+
+  /**
+   * Your answer to "Was that worth it?" — this is the *liking* signal. Rating a video again replaces
+   * your earlier answer; the model only learns again if your opinion changed.
+   */
+  function rate({ id, rating, mood, partial }) {
     return serial(["watches", "stats", "model"], (st) => {
-      const w = st.watches.find((x) => x.id === id && x.ts === ts);
-      if (!w || w.rating != null) return false;
+      const w = entry(st.watches, id);
+      if (!w) return false;
+      const before = w.rating;
+      tallyRating(st.stats, w, -1);
       w.rating = rating;
       w.mood = mood || null;
       w.partial = !!partial;   // "got what I needed": worth it without finishing
       w.later = false;
-      const worth = rating >= 4 ? 1 : 0;
-      const cells = cellsFor(st.stats, w.hooks, w.hour, w.depth);
-      if (mood) cells.push((st.stats.moods[mood] = st.stats.moods[mood] || cell()));
-      for (const c of cells) {
-        c.rated++;
-        c.ratingSum += rating;
-        c.worth += worth;
-      }
-      if (!w.learned) {
+      tallyRating(st.stats, w, 1);
+      if (before == null || W.ratingTarget(before) !== W.ratingTarget(rating)) {
         W.update(st.model, "like", W.features(w.hooks, { lateNight: w.lateNight, depth: w.depth }), W.ratingTarget(rating),
                  { channel: w.channel });
         w.learned = true;
@@ -178,9 +217,9 @@
     });
   }
 
-  function dismiss({ id, ts }) {
+  function dismiss({ id }) {
     return serial(["watches", "model"], (st) => {
-      const w = st.watches.find((x) => x.id === id && x.ts === ts);
+      const w = entry(st.watches, id);
       if (w && w.rating == null) {
         w.dismissed = true;
         settleImplicit(st.model, w, Date.now());
@@ -189,17 +228,17 @@
   }
 
   /** Not asked about (e.g. "Sometimes" mode): don't bring it up later. Learns from watch time as usual. */
-  function skip({ id, ts }) {
+  function skip({ id }) {
     return serial(["watches"], (st) => {
-      const w = st.watches.find((x) => x.id === id && x.ts === ts);
+      const w = entry(st.watches, id);
       if (w && w.rating == null) w.skipped = true;
     });
   }
 
   /** "I'll finish it later": learn nothing now, don't ask again until you come back and finish. */
-  function later({ id, ts }) {
+  function later({ id }) {
     return serial(["watches"], (st) => {
-      const w = st.watches.find((x) => x.id === id && x.ts === ts);
+      const w = entry(st.watches, id);
       if (w && w.rating == null) w.later = true;
     });
   }
@@ -248,6 +287,6 @@
   }
 
   root.WorthItStore = { init, recordImpressions, watchStart, watchEnd, context, rate, dismiss, skip, later, pendingRating,
-                        cacheThumb, reset, loadDemo, DEPTH_BUCKETS, freshStats, cellsFor, depthBucket,
+                        cacheThumb, reset, loadDemo, __resetForTest: () => (ready = null), DEPTH_BUCKETS, freshStats, cellsFor, depthBucket,
                         DEFAULT_SETTINGS };
 })(globalThis);

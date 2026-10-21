@@ -36,7 +36,7 @@ test("return visits continue the same viewing, and an early exit is never held a
   await S.reset();
   await S.init();
   const first = await view("v1", 60);                        // leave at ~7%
-  await S.dismiss({ id: "v1", ts: first.ts });
+  await S.dismiss({ id: "v1" });
   assert.equal(data.model.nLike, 0, "early exit is not learned yet");
   age("v1", 1);                                              // come back the next day
   const second = await view("v1", 640);
@@ -46,7 +46,7 @@ test("return visits continue the same viewing, and an early exit is never held a
   assert.equal(find("v1").length, 1, "one viewing, not two");
   assert.equal(w.visits, 2);
   assert.equal(w.watchedSec, 700);
-  await S.dismiss({ id: "v1", ts: w.ts });                   // skip the prompt: 78% watched -> weak "liked it"
+  await S.dismiss({ id: "v1" });                   // skip the prompt: 78% watched -> weak "liked it"
   assert.equal(data.model.nLike, 1);
   assert.ok(data.model.channels.chan.like > 0);
 });
@@ -102,15 +102,52 @@ test("'Got what I needed' counts as worth it without finishing", async () => {
   assert.ok(data.model.channels.chan.like > 0);
 });
 
-test("a finished, rated video watched again later is a new viewing", async () => {
+test("watching a rated video again keeps one entry, and rating it again replaces the rating", async () => {
   await S.reset();
   await S.init();
   const { ts } = await view("v6", 800);
-  await S.rate({ id: "v6", ts, rating: 5 });
+  await S.rate({ id: "v6", rating: 2 });
   age("v6", 2);
   const again = await view("v6", 100);
-  assert.equal(again.resumed, false);
-  assert.equal(find("v6").length, 2);
+  assert.equal(again.resumed, true);
+  assert.equal(find("v6").length, 1, "one entry per video");
+  assert.equal(find("v6")[0].watchedSec, 900, "watch time adds up");
+  assert.equal(find("v6")[0].visits, 2);
+  await S.rate({ id: "v6", rating: 5 });
+  const [w] = find("v6");
+  assert.equal(w.rating, 5);
+  assert.equal(w.ts, ts - 2 * DAY, "same key");
+  assert.equal(data.stats.none.rated, 1, "counted once in the stats");
+  assert.equal(data.stats.none.ratingSum, 5);
+  assert.equal(data.stats.none.worth, 1);
+  assert.equal(data.stats.none.watched, 1);
+});
+
+test("rating again with the same answer doesn't teach the model twice", async () => {
+  await S.reset();
+  await S.init();
+  await view("v8", 800);
+  await S.rate({ id: "v8", rating: 4 });
+  await view("v8", 100);
+  await S.rate({ id: "v8", rating: 4 });
+  assert.equal(data.model.nLike, 1);
+});
+
+test("duplicate entries saved by older versions are merged once", async () => {
+  await S.reset();
+  await S.init();
+  await view("v9", 300);
+  await S.rate({ id: "v9", rating: 2 });
+  // what older versions saved for a second viewing: a separate entry and stats counted twice
+  const dup = { ...find("v9")[0], ts: Date.now() + 1, watchedSec: 200, rating: 5 };
+  data.watches.push(dup);
+  Object.assign(data.stats.none, { watched: 2, rated: 2, ratingSum: 7, worth: 1 });
+  S.__resetForTest();
+  await S.init();
+  assert.equal(find("v9").length, 1);
+  assert.equal(find("v9")[0].watchedSec, 500);
+  assert.equal(find("v9")[0].rating, 5, "the latest answer wins");
+  assert.deepEqual([data.stats.none.watched, data.stats.none.rated, data.stats.none.ratingSum, data.stats.none.worth], [1, 1, 5, 1]);
 });
 
 test("only a video you left in the last few minutes, and weren't asked about, is brought up later", async () => {

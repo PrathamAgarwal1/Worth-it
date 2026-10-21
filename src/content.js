@@ -14,6 +14,7 @@
   const IMPRESSION_MS = 1000;
   const MIN_WATCH_SEC = 15;
 
+  let dead = false;   // set once the extension is reloaded and this copy of the script is orphaned
   let settings = { blur: true, badges: true, askRating: true, askMode: "sometimes", lambda: 1 };
   let model = W.freshModel();
   let ctx = { depth: 0, lateNight: W.isLateNight(new Date()) };
@@ -160,7 +161,7 @@
   // Throttled, not debounced: YouTube mutates the DOM non-stop while a video plays.
   let scanTimer = null;
   function scan() {
-    if (scanTimer) return;
+    if (scanTimer || dead) return;
     scanTimer = setTimeout(() => {
       scanTimer = null;
       document.querySelectorAll(CARD).forEach(processCard);
@@ -212,14 +213,24 @@
   // ---- Picks panel ---------------------------------------------------------------------
   let panel = null, panelOpen = false, panelTimer = null, panelHtml = "";
   function schedulePanel() {
-    if (panelTimer) return;
+    if (panelTimer || dead) return;
     panelTimer = setTimeout(() => {
       panelTimer = null;
       renderPanel();
     }, 300);
   }
+  // An open panel closes when you click elsewhere, press Esc, or go to another page.
+  function closePanel() {
+    if (!panelOpen) return;
+    panelOpen = false;
+    renderPanel();
+  }
+  document.addEventListener("click", (e) => panel && !panel.contains(e.target) && closePanel(), true);
+  document.addEventListener("keydown", (e) => e.key === "Escape" && closePanel(), true);
+
   const isShown = (el) => (el.checkVisibility ? el.checkVisibility() : el.getClientRects().length > 0);
   function renderPanel() {
+    if (dead) return;
     // YouTube keeps the pages you came from (e.g. the home feed) in the DOM, hidden: skip those.
     const onPage = [...document.querySelectorAll("[data-wi-vid]")].filter(isShown).map((c) => info.get(c.dataset.wiVid)).filter(Boolean);
     const uniq = [...new Map(onPage.map((v) => [v.id, v])).values()];
@@ -257,7 +268,7 @@
         ${watch ? `<div class="wi-panel-state wi-counting">▶ This video: ${clock(watch.watchedSec)} watched so far.</div>` : ""}
         <div class="wi-panel-h">Most worth it on this page</div>
         ${picks.map((v) => `<div class="wi-pick" data-go="${esc(v.id)}"><b>${pct(v.s.worthIt)}</b><span>${esc(v.title)}</span></div>`).join("") || "<div class='wi-empty'>Scroll to load more videos.</div>"}
-        <div class="wi-panel-foot">${junk} likely junk-food video${junk === 1 ? "" : "s"} ${settings.blur ? "blurred" : "flagged"} · hover a badge to see why</div>
+        ${junk ? `<div class="wi-panel-foot">${junk} likely junk-food video${junk === 1 ? "" : "s"} ${settings.blur ? "blurred" : "flagged"} · hover a badge to see why</div>` : ""}
       </div>` : ""}`;
     if (html !== panelHtml) panel.innerHTML = panelHtml = html;   // avoid re-triggering the observer
   }
@@ -294,9 +305,20 @@
   }
 
   // Media events don't bubble, but a capturing listener on the document still sees them.
+  let endedId = null;   // the video that ended on this page: playing it again is another visit
   document.addEventListener("ended", (e) => {
-    if (watch && e.target === mainVideo()) endWatch();
+    if (watch && e.target === mainVideo()) {
+      endedId = watch.id;
+      endWatch();
+    }
   }, true);
+  function checkReplay() {
+    const v = mainVideo();
+    const id = location.pathname === "/watch" ? new URLSearchParams(location.search).get("v") : null;
+    if (watch || !endedId || id !== endedId || !v || v.paused || v.ended) return;
+    endedId = null;
+    pageQueue = pageQueue.then(() => !watch && startWatch(id));
+  }
 
   function readWatchMeta() {
     const h1 = document.querySelector("ytd-watch-metadata h1, h1.ytd-watch-metadata, #title h1");
@@ -318,9 +340,11 @@
     const resume = c && c.resume;
     const now = Date.now();
     watch = { id, title: "", channel: "", hooks: [], ts: resume ? resume.ts : now, lastTs: now, depth: ctx.depth,
-              watchedSec: resume ? resume.watchedSec : 0, durationSec: 0 };
+              watchedSec: resume ? resume.watchedSec : 0, durationSec: 0,
+              prevRating: resume && resume.rating != null ? resume.rating : null, prevPartial: !!(resume && resume.partial) };
     log("watching", id, resume ? `(continuing, ${resume.watchedSec}s so far)` : "", c ? "" : "(background not responding)");
     const mine = watch;
+    endedId = null;
     if (card) Object.assign(mine, { title: card.title, channel: card.channel, hooks: card.hooks });
     const prev = lastMeta;
     let tries = 0;
@@ -394,9 +418,12 @@
     if (p && !prompt && (!watch || watch.id !== p.id) && (await mayAsk(p))) showPrompt(p);
   }
 
+  const FACES = [["😩", "Waste"], ["😕", "Meh"], ["😐", "OK"], ["🙂", "Good"], ["🤩", "Loved it"]];
+  const PROMPT_MS = 30000;
   let prompt = null;
   let closePrompt = null;
   function showPrompt(w) {
+    if (dead || askMode() === "never" || !alive()) return;
     if (closePrompt) closePrompt(true);
     let mood = null;
     chrome.storage.local.set({ lastAskTs: Date.now() });
@@ -406,8 +433,8 @@
     prompt.innerHTML = `
       <div class="wi-head"><div class="wi-q">Worth it?</div><button class="wi-x" title="Not now">×</button></div>
       <div class="wi-t">${esc(w.title || "That video")}</div>
-      <div class="wi-rate">${[["😩", "Waste"], ["😕", "Meh"], ["😐", "OK"], ["🙂", "Good"], ["🤩", "Loved it"]]
-        .map(([e, l], i) => `<button data-r="${i + 1}" title="${l}">${e}</button>`).join("")}</div>
+      ${w.prevRating != null ? `<div class="wi-prev">Watched again · last time: ${w.prevPartial ? "✂️ got what I needed" : `${FACES[w.prevRating - 1][0]} ${FACES[w.prevRating - 1][1]}`}</div>` : ""}
+      <div class="wi-rate">${FACES.map(([e, l], i) => `<button data-r="${i + 1}" title="${l}"${!w.prevPartial && w.prevRating === i + 1 ? ' class="on"' : ""}>${e}</button>`).join("")}</div>
       <button class="wi-more">More</button>
       <div class="wi-extra" hidden>
         <div class="wi-alt">
@@ -426,7 +453,13 @@
       prompt = closePrompt = null;
     };
     closePrompt = close;
-    let timer = setTimeout(() => close(true), 20000);
+    // Goes away on its own if ignored, but never while the pointer is on it.
+    let timer = setTimeout(() => close(true), PROMPT_MS);
+    el.addEventListener("mouseenter", () => clearTimeout(timer));
+    el.addEventListener("mouseleave", () => {
+      clearTimeout(timer);
+      if (prompt === el && !el.querySelector(".wi-thanks")) timer = setTimeout(() => close(true), PROMPT_MS / 2);
+    });
     prompt.addEventListener("click", (e) => {
       const m = e.target.closest("[data-m]");
       const r = e.target.closest("[data-r]");
@@ -440,13 +473,13 @@
         prompt.querySelector(".wi-extra").hidden = false;
         e.target.closest(".wi-more").remove();
         clearTimeout(timer);                          // opened the options: don't vanish mid-choice
-        timer = setTimeout(() => close(true), 45000);
+        timer = setTimeout(() => close(true), PROMPT_MS * 2);
       } else if (m) {
         mood = mood === m.dataset.m ? null : m.dataset.m;
         prompt.querySelectorAll("[data-m]").forEach((b) => b.classList.toggle("on", b.dataset.m === mood));
       } else if (r) {
         send("rate", { id: w.id, ts: w.ts, rating: +r.dataset.r, mood });
-        thanks("Thanks");
+        thanks(w.prevRating != null ? "Updated" : "Thanks");
       } else if (a && a.dataset.a === "partial") {
         send("rate", { id: w.id, ts: w.ts, rating: 4, mood, partial: true });
         thanks("Thanks");
@@ -479,10 +512,13 @@
   // extension, so the URL is checked twice a second. Page changes run one at a time, in order.
   let lastUrl = null, pageQueue = Promise.resolve();
   function checkUrl() {
-    if (location.href === lastUrl) return;
+    if (dead || location.href === lastUrl) return;
     const first = lastUrl === null;
     lastUrl = location.href;
-    if (!first) flushImpressions();
+    if (!first) {
+      flushImpressions();
+      closePanel();
+    }
     log("page", location.pathname + location.search);
     pageQueue = pageQueue.then(onPage, onPage);
   }
@@ -494,7 +530,8 @@
   });
   document.addEventListener("visibilitychange", () => document.visibilityState === "hidden" && flushImpressions());
 
-  new MutationObserver(scan).observe(document.documentElement, { childList: true, subtree: true });
+  const domObserver = new MutationObserver(scan);
+  domObserver.observe(document.documentElement, { childList: true, subtree: true });
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== "local") return;
@@ -503,11 +540,31 @@
     if (changes.settings || changes.model) rescore();
   });
 
+  // After the extension is reloaded or updated, this copy of the script keeps running in open tabs
+  // but can no longer read your settings. Shut it down so it can't act on stale ones.
+  const alive = () => { try { return !!chrome.runtime.id; } catch (e) { return false; } };
+  let heartbeat = null;
+  function shutDown() {
+    dead = true;
+    log("extension was reloaded: this tab's copy is stopping (refresh the tab to start the new one)");
+    [heartbeat, tick, checkpoint, metaTimer].forEach(clearInterval);
+    domObserver.disconnect();
+    observer.disconnect();
+    watch = null;
+    if (prompt) prompt.remove();
+    if (panel) panel.remove();
+    prompt = panel = null;
+  }
+
   (async () => {
     const s = await chrome.storage.local.get(["settings", "model"]);
     settings = { ...settings, ...(s.settings || {}) };
     model = s.model || model;
     checkUrl();
-    setInterval(checkUrl, 500);
+    heartbeat = setInterval(() => {
+      if (!alive()) return shutDown();
+      checkUrl();
+      checkReplay();
+    }, 500);
   })();
 })();

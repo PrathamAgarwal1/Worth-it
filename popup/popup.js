@@ -10,7 +10,7 @@ async function load() {
   $("lambdaVal").textContent = STRICTNESS[Math.round(($("lambda").value) * 4)];
 
   const midnight = new Date().setHours(0, 0, 0, 0);
-  const today = demo ? watches.slice(-12) : watches.filter((w) => w.ts >= midnight);
+  const today = demo ? watches.slice(-12) : watches.filter((w) => (w.lastTs || w.ts) >= midnight);
   const rated = today.filter((w) => w.rating != null);
   const worth = rated.length ? Math.round((100 * rated.filter((w) => w.rating >= 4).length) / rated.length) + "%" : "–";
   const mins = Math.round(today.reduce((s, w) => s + w.watchedSec, 0) / 60);

@@ -51,6 +51,7 @@
   window.chrome = {
     storage: { local, onChanged: { addListener: (fn) => listeners.push(fn) } },
     runtime: {
+      id: "mock-extension",   // delete it to simulate an extension reload (the tab's script is orphaned)
       lastError: undefined,
       sendMessage(msg, cb) {
         const h = getHandlers()[msg.type];

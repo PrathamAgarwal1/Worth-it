@@ -82,7 +82,8 @@
         // Fake playback at 2× speed: the clock advances 0.2 s every 100 ms.
         const video = app.querySelector("video");
         Object.defineProperty(video, "currentTime", { get: () => video._t || 0 });
-        Object.defineProperty(video, "paused", { get: () => false });
+        Object.defineProperty(video, "paused", { get: () => !!video._ended });
+        Object.defineProperty(video, "ended", { get: () => !!video._ended });
         Object.defineProperty(video, "duration", { get: () => 300 });
       }
       const browse = app.querySelector("ytd-browse"), flexy = app.querySelector("ytd-watch-flexy");
@@ -101,7 +102,9 @@
       else setMeta();
       const video = app.querySelector("video");
       video._t = 0;
+      video._ended = false;
       fakePlayer = setInterval(() => {
+        if (video._ended) return;   // test: set video._ended, dispatch "ended"; clear it again to replay
         video._t += 0.2;
         document.getElementById("pt").textContent = `▶ watched ${Math.round(video._t)}s (2× speed)`;
         video.dispatchEvent(new Event("timeupdate"));

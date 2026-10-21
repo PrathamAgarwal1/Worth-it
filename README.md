@@ -16,7 +16,7 @@ YouTube's recommender learns from what you *click*, which is wanting. Worth It? 
 |---|---|---|
 | 🔍 | **Spots the hook** in every title and thumbnail, and labels it: curiosity gap, outrage, fear, FOMO, social proof, hype, shouting, loud thumbnail | Information-gap theory (Loewenstein), negativity bias, scarcity and social proof (Cialdini), incentive salience |
 | ❓ | **Asks "Was that worth it?"** (1–5) after you watch, plus an optional mood check. Two more answers for videos you didn't finish: **✂️ Got what I needed** (counts as worth it) and **⏸ Finishing later** (learns nothing now, asks again when you're done) | Experience sampling: rating in the moment, not from memory |
-| ↩️ | **Joins up return visits**: reopening a video you didn't finish continues the same viewing, and the watch time adds up | |
+| ↩️ | **One entry per video**: watching a video again adds to the same entry, and rating it again replaces your earlier answer | |
 | 🧠 | **Learns *your* wanting vs liking**: which hooks make you click, and which ones actually pay off, per hook *and per channel* | Two small personal models: P(click) and P(glad you watched) |
 | ⏱️ | **Learns even when you don't rate**: finishing most of a video counts as a weak "liked it". Leaving in the first 20% counts as a weak "didn't" only if you don't come back within 3 days. Leaving halfway counts as nothing | Behavioural signal to complement self-report |
 | 🍔 | **Flags junk food, only with evidence**: once *your* ratings show a channel or hook pulls hard but rarely pays off, it gets an orange badge and a blurred thumbnail (hover to reveal). On day 1, hooks are only labelled, never judged | Lowering cue reactivity: a blurred cue has less pull |
@@ -59,7 +59,7 @@ popup/             toolbar popup: switches, strictness slider, today's stats
   - **Watched 70% or more:** counts at once as "liked it".
   - **Left in the first 20%:** waits 3 days. If you come back to the video in that time, it's treated as "watching the rest later" and never counts against it.
   - **"⏸ Finishing later":** never counts against the video, even if you don't come back.
-  - **Return visits:** reopening an unfinished video within 14 days continues the same viewing, so watch time adds up and you're asked once at the end.
+  - **Watching again:** each video has one entry. Watch time adds up across visits, and if you're asked again, the prompt shows your last answer and a new one replaces it (the model only re-learns if your opinion changed).
 - **Packaging vs track record:** each channel gets its own learned offset on top of the hook weights. A channel with clickbait-style titles that you consistently enjoy ends up "✓ worth it", and its hooks are shown only as small emoji. The same hooks from a channel you regret get flagged.
 - **Getting started:** both models start from priors that say hooks pull harder but pay off less, and that late nights and long sessions make it worse. These priors move the *worth it %*, but they never trigger a junk-food verdict on their own. That takes at least 2 ratings of the channel or 5 ratings of videos with that hook, plus a below-60% chance you'll enjoy it. Hover any badge to see what it's based on.
 - **The ranking score** comes from the [KuaiRand research](../README.md) in the parent folder. That study showed, on 1.19M real impressions, that ranking this way cuts regretted clicks by about 10%.
