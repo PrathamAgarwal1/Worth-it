@@ -20,7 +20,7 @@ YouTube's recommender learns from what you *click*, which is wanting. Worth It? 
 | 🧠 | **Learns *your* wanting vs liking**: which hooks make you click, and which ones actually pay off, per hook *and per channel* | Two small personal models: P(click) and P(glad you watched) |
 | ⏱️ | **Learns even when you don't rate**: finishing most of a video counts as a weak "liked it". Leaving in the first 20% counts as a weak "didn't" only if you don't come back within 3 days. Leaving halfway counts as nothing | Behavioural signal to complement self-report |
 | 🍔 | **Flags junk food, only with evidence**: once *your* ratings show a channel or hook pulls hard but rarely pays off, it gets an orange badge and a blurred thumbnail (hover to reveal). On day 1, hooks are only labelled, never judged | Lowering cue reactivity: a blurred cue has less pull |
-| ⭐ | **Suggests worth-it picks** from the current page, in a small panel | Ranks by `liking − λ · max(0, wanting − liking)` |
+| ⭐ | **Suggests worth-it picks** from the current page: click the brain icon in YouTube's top bar (next to the bell) | Ranks by `liking − λ · max(0, wanting − liking)` |
 | 🌙 | **Notices your vulnerable moments**: late night and deep in a session | Fatigue weakens self-control while the cue's pull stays strong |
 | 📊 | **"Your Brain on YouTube" report**: your personal triggers, worst hours, rabbit holes, moods and channels | |
 
@@ -47,7 +47,7 @@ Everything stays in your browser (`chrome.storage.local`). There are no accounts
 ```
 src/hooks.js       hook detector: title patterns + thumbnail colour analysis
 src/model.js       personal model: two online logistic regressions with research-informed priors
-src/content.js     runs on youtube.com: badges, blur, picks panel, click and watch tracking, rating prompt
+src/content.js     runs on youtube.com: badges, blur, top-bar picks button, rating bar, click and watch tracking
 src/background.js  single writer for storage; analyses thumbnails
 src/store.js       storage and running statistics
 report/            "Your Brain on YouTube"

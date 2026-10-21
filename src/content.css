@@ -3,6 +3,9 @@
    or competes with the videos for attention. */
 :root {
   --wi-want: #eb6834;
+  --wi-page: #ffffff;
+  --wi-hover: rgba(0, 0, 0, 0.05);
+  --wi-press: rgba(0, 0, 0, 0.1);
   --wi-like: #2a78d6;
   --wi-good: #1baf7a;
   --wi-card: #ffffff;
@@ -12,6 +15,9 @@
   --wi-chip: rgba(15, 15, 15, 0.55);
 }
 html[dark] {
+  --wi-page: #0f0f0f;
+  --wi-hover: rgba(255, 255, 255, 0.1);
+  --wi-press: rgba(255, 255, 255, 0.2);
   --wi-card: #212121;
   --wi-text: #f1f1f1;
   --wi-muted: #aaaaaa;
@@ -56,61 +62,108 @@ html[dark] {
   filter: none;
 }
 
-/* ---- Floating panel: a small faded icon until you open it ---- */
-.wi-panel {
-  position: fixed;
-  left: 16px;
-  bottom: 16px;
-  z-index: 9999;
-  width: 300px;
-  max-width: calc(100vw - 32px);
-  font: 14px/1.4 Roboto, Arial, sans-serif;
-  color: var(--wi-text);
-  pointer-events: none;      /* only the button and body take clicks */
-}
-.wi-panel-toggle {
+/* ---- Brain button: one of YouTube's own top-bar icon buttons ---- */
+.wi-brain {
   position: relative;
-  width: 34px;
-  height: 34px;
-  border: 1px solid var(--wi-line);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 40px;
+  height: 40px;
+  margin-right: 8px;
+  padding: 0;
+  border: 0;
   border-radius: 50%;
-  background: var(--wi-card);
-  font-size: 16px;
-  line-height: 1;
-  opacity: 0.45;
+  background: transparent;
+  color: var(--wi-text);
   cursor: pointer;
-  pointer-events: auto;
-  transition: opacity 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.1s ease;
 }
-.wi-panel-toggle:hover { opacity: 1; }
-.wi-dot {
+.wi-brain:hover, .wi-brain.wi-on { background: var(--wi-hover); }
+.wi-brain:active { background: var(--wi-press); }
+.wi-brain:focus-visible { outline: 2px solid var(--wi-like); outline-offset: 2px; }
+.wi-count {
   position: absolute;
-  top: -4px;
-  right: -4px;
-  min-width: 15px;
-  height: 15px;
-  padding: 0 3px;
+  top: 2px;
+  right: 0;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  box-sizing: border-box;
+  border: 2px solid var(--wi-page);
   border-radius: 999px;
   background: var(--wi-want);
   color: #fff;
-  font: 600 10px/15px Roboto, Arial, sans-serif;
+  font: 500 10px/12px Roboto, Arial, sans-serif;
+  text-align: center;
 }
-.wi-panel-body {
-  margin-top: 8px;
-  padding: 12px;
-  border: 1px solid var(--wi-line);
+.wi-count[hidden] { display: none; }
+/* No top bar found: the same button, floating in the corner */
+.wi-brain-float {
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  z-index: 2300;
+  margin: 0;
+  background: var(--wi-card);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+}
+
+/* ---- Dropdown: looks and moves like YouTube's own menus ---- */
+.wi-pop {
+  position: fixed;
+  z-index: 2300;
+  box-sizing: border-box;
+  max-height: calc(100vh - 80px);
+  overflow-y: auto;
+  padding: 8px 0;
   border-radius: 12px;
   background: var(--wi-card);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.16);
-  pointer-events: auto;
+  color: var(--wi-text);
+  font: 14px/1.4 Roboto, Arial, sans-serif;
+  box-shadow: 0 4px 32px rgba(0, 0, 0, 0.1), 0 1px 4px rgba(0, 0, 0, 0.12);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-6px) scale(0.98);
+  transform-origin: top right;
+  transition: opacity 0.12s ease, transform 0.12s ease, visibility 0s linear 0.12s;
 }
-.wi-panel-h { font-weight: 600; margin-bottom: 6px; }
-.wi-panel-state { font-size: 12px; padding: 6px 8px; margin-bottom: 8px; border-radius: 8px; background: var(--wi-line); color: var(--wi-muted); }
-.wi-pick { display: flex; gap: 10px; padding: 6px 4px; border-radius: 8px; cursor: pointer; }
-.wi-pick:hover { background: var(--wi-line); }
-.wi-pick b { color: var(--wi-like); min-width: 36px; font-weight: 600; }
+.wi-pop.wi-pop-up { transform-origin: bottom left; transform: translateY(6px) scale(0.98); }
+.wi-pop.wi-open { opacity: 1; visibility: visible; transform: none; transition: opacity 0.15s ease, transform 0.15s ease; }
+.wi-pop-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 16px 8px; font-size: 16px; font-weight: 500; }
+.wi-pop-link {
+  border: 0;
+  border-radius: 999px;
+  padding: 6px 12px;
+  background: transparent;
+  color: var(--wi-like);
+  font: 500 13px Roboto, Arial, sans-serif;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.wi-pop-link:hover { background: rgba(42, 120, 214, 0.1); }
+.wi-pop-state { margin: 0 16px 8px; padding: 6px 10px; border-radius: 8px; background: var(--wi-hover); color: var(--wi-muted); font-size: 12px; }
+.wi-pop-list { display: flex; flex-direction: column; }
+.wi-pick {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  padding: 8px 16px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.wi-pick:hover, .wi-pick:focus-visible { background: var(--wi-hover); outline: none; }
+.wi-pick b { flex: none; min-width: 38px; color: var(--wi-like); font-weight: 500; }
 .wi-pick span { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.wi-panel-foot, .wi-empty { margin-top: 8px; font-size: 12px; color: var(--wi-muted); }
+.wi-empty { padding: 8px 16px; color: var(--wi-muted); font-size: 13px; }
+.wi-pop-foot { margin-top: 4px; padding: 8px 16px 4px; border-top: 1px solid var(--wi-line); color: var(--wi-muted); font-size: 12px; }
 
 /* ---- "Worth it?" prompt: compact, one row of faces ---- */
 .wi-prompt {

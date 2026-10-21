@@ -211,8 +211,17 @@
     send("impressions", { items });
   }
 
-  // ---- Picks panel ---------------------------------------------------------------------
-  let panel = null, panelOpen = false, panelTimer = null, panelHtml = "";
+  // ---- Picks: a brain button in YouTube's top bar, opening a dropdown like YouTube's own menus -----
+  // If the top bar can't be found, the button floats in the bottom-left corner instead.
+  // Brain icon: Lucide (ISC licence), drawn in YouTube's icon style: 24 px, one colour, thin stroke.
+  const BRAIN_SVG = `<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.6"
+    stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/>
+    <path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/>
+    <path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"/><path d="M17.599 6.5a3 3 0 0 0 .399-1.375"/>
+    <path d="M6.003 5.125A3 3 0 0 0 6.401 6.5"/><path d="M3.477 10.896a4 4 0 0 1 .585-.396"/>
+    <path d="M19.938 10.5a4 4 0 0 1 .585.396"/><path d="M6 18a4 4 0 0 1-1.967-.516"/><path d="M19.967 17.484A4 4 0 0 1 18 18"/></svg>`;
+  let btn = null, pop = null, panelOpen = false, panelTimer = null, popHtml = "";
   function schedulePanel() {
     if (panelTimer || dead) return;
     panelTimer = setTimeout(() => {
@@ -220,58 +229,124 @@
       renderPanel();
     }, 300);
   }
-  // An open panel closes when you click elsewhere, press Esc, or go to another page.
+
+  function mastheadSlot() {
+    const end = document.querySelector("ytd-masthead #end");
+    if (!end || !isShown(end)) return null;
+    const buttons = end.querySelector("#buttons");
+    return buttons ? { parent: buttons, before: buttons.firstChild } : { parent: end, before: end.firstChild };
+  }
+
+  /** Put the button in the top bar (again, if YouTube re-drew it), or float it if there's no top bar. */
+  function ensureButton() {
+    if (!btn) {
+      btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "wi-brain";
+      btn.setAttribute("aria-label", "Worth It?");
+      btn.setAttribute("aria-haspopup", "dialog");
+      btn.setAttribute("aria-expanded", "false");
+      btn.innerHTML = `${BRAIN_SVG}<span class="wi-count" hidden></span>`;
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();   // YouTube's top bar has its own click handling
+        if (panelOpen) closePanel();
+        else openPanel();
+      });
+    }
+    const slot = mastheadSlot();
+    btn.classList.toggle("wi-brain-float", !slot);
+    if (slot && btn.parentElement !== slot.parent) slot.parent.insertBefore(btn, slot.before);
+    else if (!slot && btn.parentElement !== document.body) document.body.appendChild(btn);
+  }
+
+  function openPanel() {
+    panelOpen = true;
+    renderPanel();
+  }
+  // An open dropdown closes when you click elsewhere, press Esc, or go to another page.
   function closePanel() {
     if (!panelOpen) return;
     panelOpen = false;
     renderPanel();
   }
-  document.addEventListener("click", (e) => panel && !panel.contains(e.target) && closePanel(), true);
-  document.addEventListener("keydown", (e) => e.key === "Escape" && closePanel(), true);
+  document.addEventListener("click", (e) => {
+    if (panelOpen && !(pop && pop.contains(e.target)) && !(btn && btn.contains(e.target))) closePanel();
+  }, true);
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape" || !panelOpen) return;
+    closePanel();
+    btn.focus();
+  }, true);
+  window.addEventListener("resize", () => panelOpen && placePop());
+
+  /** Under the button, right edges lined up (YouTube's menus do the same); above it when floating. */
+  function placePop() {
+    const r = btn.getBoundingClientRect();
+    const w = Math.min(340, innerWidth - 16);
+    const floating = btn.classList.contains("wi-brain-float");
+    pop.style.width = `${w}px`;
+    pop.style.left = `${Math.max(8, Math.min(floating ? r.left : r.right - w, innerWidth - w - 8))}px`;
+    pop.style.top = floating ? "" : `${r.bottom + 4}px`;
+    pop.style.bottom = floating ? `${innerHeight - r.top + 8}px` : "";
+    pop.classList.toggle("wi-pop-up", floating);
+  }
 
   const isShown = (el) => (el.checkVisibility ? el.checkVisibility() : el.getClientRects().length > 0);
   function renderPanel() {
     if (dead) return;
+    ensureButton();
     // YouTube keeps the pages you came from (e.g. the home feed) in the DOM, hidden: skip those.
     const onPage = [...document.querySelectorAll("[data-wi-vid]")].filter(isShown).map((c) => info.get(c.dataset.wiVid)).filter(Boolean);
     const uniq = [...new Map(onPage.map((v) => [v.id, v])).values()];
-    if ((!uniq.length && !watch) || location.pathname.startsWith("/shorts")) {
-      if (panel) panel.remove();
-      panel = null;
-      panelHtml = "";
+    const junk = uniq.filter((v) => v.s.junk).length;
+
+    // The button only changes what has to change, so it never flickers under the pointer.
+    const count = btn.querySelector(".wi-count");
+    const dot = junk && !panelOpen ? String(junk) : "";
+    if (count.textContent !== dot) count.textContent = dot;
+    count.hidden = !dot;
+    const label = junk ? `Worth It? · ${junk} likely junk-food video${junk === 1 ? "" : "s"} on this page` : "Worth It?";
+    if (btn.title !== label) btn.title = label;
+    btn.setAttribute("aria-expanded", String(panelOpen));
+    btn.classList.toggle("wi-on", panelOpen);
+
+    if (!panelOpen) {
+      if (pop) pop.classList.remove("wi-open");
       return;
     }
-    if (!panel) {
-      panel = document.createElement("div");
-      panel.className = "wi-panel";
-      panel.addEventListener("click", (e) => {
+    if (!pop) {
+      pop = document.createElement("div");
+      pop.className = "wi-pop";
+      pop.setAttribute("role", "dialog");
+      pop.setAttribute("aria-label", "Worth It?");
+      pop.addEventListener("click", (e) => {
         const item = e.target.closest("[data-go]");
         if (item) {
           const link = document.querySelector(`[data-wi-vid="${item.dataset.go}"] a[href*="/watch?v="]`);
+          closePanel();
           if (link) link.click();
           else location.href = `/watch?v=${item.dataset.go}`;
-        } else if (e.target.closest(".wi-panel-toggle")) {
-          panelOpen = !panelOpen;
-          renderPanel();
+        } else if (e.target.closest("[data-report]")) {
+          closePanel();
+          send("openReport");
         }
       });
-      document.body.appendChild(panel);
+      document.body.appendChild(pop);
     }
-    const junk = uniq.filter((v) => v.s.junk).length;
+    placePop();
     const picks = uniq.filter((v) => !v.s.junk).sort((a, b) => b.s.rank - a.s.rank).slice(0, 5);
     const state = ctx.lateNight || ctx.depth >= W.DEEP_SESSION
-      ? `<div class="wi-panel-state">${ctx.lateNight ? "🌙 Late night" : ""}${ctx.lateNight && ctx.depth >= W.DEEP_SESSION ? " · " : ""}${ctx.depth >= W.DEEP_SESSION ? `🔁 Video #${ctx.depth} this session` : ""}: hooks pull harder right now.</div>`
+      ? `<div class="wi-pop-state">${ctx.lateNight ? "🌙 Late night" : ""}${ctx.lateNight && ctx.depth >= W.DEEP_SESSION ? " · " : ""}${ctx.depth >= W.DEEP_SESSION ? `🔁 Video #${ctx.depth} this session` : ""}: hooks pull harder right now.</div>`
       : "";
-    // Collapsed: a small, faded icon, with a quiet count only when there's junk food on the page.
     const html = `
-      <button class="wi-panel-toggle" title="Worth It?">🧠${junk && !panelOpen ? `<span class="wi-dot">${junk}</span>` : ""}</button>
-      ${panelOpen ? `<div class="wi-panel-body">${state}
-        ${watch ? `<div class="wi-panel-state wi-counting">▶ This video: ${clock(watch.watchedSec)} watched so far.</div>` : ""}
-        <div class="wi-panel-h">Most worth it on this page</div>
-        ${picks.map((v) => `<div class="wi-pick" data-go="${esc(v.id)}"><b>${pct(v.s.worthIt)}</b><span>${esc(v.title)}</span></div>`).join("") || "<div class='wi-empty'>Scroll to load more videos.</div>"}
-        ${junk ? `<div class="wi-panel-foot">${junk} likely junk-food video${junk === 1 ? "" : "s"} ${settings.blur ? "blurred" : "flagged"} · hover a badge to see why</div>` : ""}
-      </div>` : ""}`;
-    if (html !== panelHtml) panel.innerHTML = panelHtml = html;   // avoid re-triggering the observer
+      <div class="wi-pop-head"><span>Most worth it on this page</span><button class="wi-pop-link" data-report>Your report</button></div>
+      ${state}
+      ${watch ? `<div class="wi-pop-state">▶ This video: ${clock(watch.watchedSec)} watched so far</div>` : ""}
+      <div class="wi-pop-list">${picks.map((v) => `<button class="wi-pick" data-go="${esc(v.id)}"><b>${pct(v.s.worthIt)}</b><span>${esc(v.title)}</span></button>`).join("")
+        || `<div class="wi-empty">${location.pathname.startsWith("/shorts") ? "Shorts aren't scored yet." : "No videos on this page yet. Scroll to load some."}</div>`}</div>
+      ${junk ? `<div class="wi-pop-foot">${junk} likely junk-food video${junk === 1 ? "" : "s"} ${settings.blur ? "blurred" : "flagged"} · hover a badge to see why</div>` : ""}`;
+    if (html !== popHtml) pop.innerHTML = popHtml = html;
+    if (!pop.classList.contains("wi-open")) requestAnimationFrame(() => panelOpen && pop.classList.add("wi-open"));
   }
 
   // ---- Liking: watch tracking and "Was that worth it?" ----------------------------------
@@ -694,10 +769,8 @@
     domObserver.disconnect();
     observer.disconnect();
     watch = null;
-    if (prompt) prompt.remove();
-    if (panel) panel.remove();
-    if (bar) bar.remove();
-    prompt = panel = bar = null;
+    for (const el of [prompt, btn, pop, bar]) if (el) el.remove();
+    prompt = btn = pop = bar = null;
   }
 
   (async () => {

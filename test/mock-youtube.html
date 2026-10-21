@@ -8,7 +8,13 @@
   <link rel="stylesheet" href="/src/content.css">
   <style>
     body { margin: 0; font-family: Roboto, Arial, sans-serif; background: #fff; color: #0f0f0f; }
-    .top { display: flex; align-items: center; gap: 16px; padding: 12px 24px; border-bottom: 1px solid #eee; }
+    ytd-masthead { display: block; position: sticky; top: 0; z-index: 2020; background: #fff; }
+    .top { display: flex; align-items: center; gap: 16px; height: 56px; padding: 0 24px; border-bottom: 1px solid #eee; }
+    #end { margin-left: auto; }
+    #buttons { display: flex; align-items: center; gap: 8px; }
+    .mock-icon { width: 40px; height: 40px; border: 0; border-radius: 50%; background: none; font-size: 18px; filter: grayscale(1); }
+    .mock-avatar { width: 32px; height: 32px; margin-left: 8px; border-radius: 50%; background: #c4a3f0; }
+    html[dark] ytd-masthead { background: #0f0f0f; }
     .top a { color: inherit; text-decoration: none; font-weight: 700; font-size: 20px; }
     .top small { color: #606060; }
     #contents { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 24px 16px; padding: 24px; }
@@ -33,7 +39,8 @@
   <!-- Like real YouTube: a hidden hover-preview player that reuses the main player's classes and
        sits *before* the watch page in the DOM. A naive "first video.html5-main-video" grabs this one. -->
   <div id="inline-preview-player" class="html5-video-player" hidden><video class="video-stream html5-main-video"></video></div>
-  <div class="top"><a href="/">▶ YouTube <small>(mock)</small></a><span id="clock"></span></div>
+  <ytd-masthead id="masthead"><div id="container" class="top"><a href="/">▶ YouTube <small>(mock)</small></a><span id="clock"></span>
+    <div id="end"><div id="buttons"><button class="mock-icon" title="Notifications">🔔</button><span class="mock-avatar"></span></div></div></div></ytd-masthead>
   <div id="app"></div>
 
   <script src="/test/chrome-stub.js"></script>
@@ -161,7 +168,7 @@
         chrome.runtime.sendMessage({ type: "watchEnd", watch: { id: v.id, title: v.title, channel: v.channel,
           hooks: WorthIt.detectHooks(v.title, 0.8), ts: Date.now(), depth: 4, watchedSec: 140, durationSec: 600, ended: true } }, () => {
           loadContentScript();
-          setTimeout(() => document.querySelector(".wi-panel-toggle")?.click(), 1500);
+          setTimeout(() => document.querySelector(".wi-brain")?.click(), 1500);
         }));
     } else {
       loadContentScript();

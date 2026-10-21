@@ -55,6 +55,7 @@ const handlers = {
   pendingRating: () => S.pendingRating(),
   reset: () => S.reset(),
   loadDemo: () => S.loadDemo(),
+  openReport: () => chrome.runtime.openOptionsPage(),
 };
 
 chrome.runtime.onMessage.addListener((msg, _sender, reply) => {

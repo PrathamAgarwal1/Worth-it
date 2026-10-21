@@ -43,7 +43,7 @@
     handlers = {
       context: () => S.context(), thumb: (m) => fakeArousal(m.id), impressions: (m) => S.recordImpressions(m.items),
       watchStart: (m) => S.watchStart(m), watchEnd: (m) => S.watchEnd(m.watch), rate: (m) => S.rate(m),
-      dismiss: (m) => S.dismiss(m), skip: (m) => S.skip(m), later: (m) => S.later(m), pendingRating: () => S.pendingRating(), reset: () => S.reset(), loadDemo: () => S.loadDemo(),
+      dismiss: (m) => S.dismiss(m), skip: (m) => S.skip(m), later: (m) => S.later(m), pendingRating: () => S.pendingRating(), openReport: () => (location.href = "/report/report.html"), reset: () => S.reset(), loadDemo: () => S.loadDemo(),
     };
     return handlers;
   }
