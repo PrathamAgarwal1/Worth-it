@@ -2,8 +2,6 @@
 
 **A Chrome extension that shows how YouTube hooks your brain, and learns the difference between what you click and what you actually enjoy.**
 
-![Worth It? on a YouTube feed](docs/feed.png)
-
 ## The idea
 
 Neuroscientists Kent Berridge and Terry Robinson showed that **wanting** (the dopamine-driven pull toward something) and **liking** (actually enjoying it) run on separate brain systems. That's why you can keep clicking on things that don't make you happy.
@@ -24,11 +22,9 @@ YouTube's recommender learns from what you *click*, which is wanting. Worth It? 
 | 🌙 | **Notices your vulnerable moments**: late night and deep in a session | Fatigue weakens self-control while the cue's pull stays strong |
 | 📊 | **"Your Brain on YouTube" report**: week-by-week worth-it % and regretted time, your personal triggers, worst hours, rabbit holes, moods, and every channel's verdict (which you can overrule) | |
 
-![The "Worth it?" bar under the video](docs/watch.png)
-
 ![Your Brain on YouTube report (demo data)](docs/report.png)
 
-*The screenshots use the project's mock YouTube page and the built-in demo data (a simulated viewer). Yours fills in as you watch and rate.*
+*The report above uses the built-in demo data (a simulated viewer). Yours fills in as you watch and rate.*
 
 ## Install (2 minutes)
 
@@ -88,10 +84,10 @@ python test/serve.py
 
 The first command runs the unit tests: hook detection, both models, the track record (confidence levels, fading, overrides, strictness), the demo generator, and storage flows (re-watches and re-ratings, rewatches and bounces, "finishing later", "got what I needed").
 
-The second starts a mock YouTube at http://localhost:8765 that runs the real extension code end to end. It copies the quirks of the real site that caused bugs: the previous video's title lingering after you navigate, earlier pages kept hidden in the page, the miniplayer, and a video ending without its "ended" event. Useful pages:
+The second starts a local test page at http://localhost:8765 that imitates YouTube's page structure and runs the real extension code end to end. It reproduces the quirks of the real site that caused bugs: the previous video's title lingering after you navigate, earlier pages kept hidden in the page, the miniplayer, and a video ending without its "ended" event. Useful pages:
 
-- `/` the home feed, `/watch?v=mockvid0001` a watch page
-- `/?shot=1` demo data with the picks menu open (used for the screenshots above)
+- `/` the home feed; click any video for its watch page
+- `/?shot=1` demo data with the picks menu open
 - `/report/report.html?demo=1` the report with demo data
 - `/popup/popup.html` the toolbar popup
 
@@ -99,7 +95,7 @@ The second starts a mock YouTube at http://localhost:8765 that runs the real ext
 
 - **English titles only.** Hook detection is rule-based, so it's fast, private and explainable, but it misses subtle or non-English hooks.
 - **"Loud thumbnail" is a colour heuristic** (saturation, vivid pixels, contrast). It doesn't detect faces or arrows.
-- **YouTube changes its page layout often.** The selectors cover the current and previous layouts, but they may need updating. Development and testing happen on the mock YouTube page, so check new behaviour on the real site too.
+- **YouTube changes its page layout often.** The selectors cover the current and previous layouts, but they may need updating. Automated tests run on the local test page, so check new behaviour on the real site too.
 - **Shorts aren't tracked yet.**
 - **Desktop Chrome only.** Chrome on phones doesn't run extensions, and no extension can reach the YouTube app.
 - **Early on, the priors do most of the work** for the worth-it %. Expect around 30 rated videos before the report says much about *you*.
