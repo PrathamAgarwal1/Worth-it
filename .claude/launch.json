@@ -1,0 +1,6 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    { "name": "worth-it-mock", "runtimeExecutable": "python", "runtimeArgs": ["test/serve.py"], "port": 8765 }
+  ]
+}

@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>YouTube (mock)</title>
+  <!-- Test page: mimics YouTube's DOM (element names, ids, SPA navigation events) so the real
+       content script can be exercised end to end. See test/serve.py. -->
+  <link rel="stylesheet" href="/src/content.css">
+  <style>
+    body { margin: 0; font-family: Roboto, Arial, sans-serif; background: #fff; color: #0f0f0f; }
+    .top { display: flex; align-items: center; gap: 16px; padding: 12px 24px; border-bottom: 1px solid #eee; }
+    .top a { color: inherit; text-decoration: none; font-weight: 700; font-size: 20px; }
+    .top small { color: #606060; }
+    #contents { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 24px 16px; padding: 24px; }
+    ytd-rich-item-renderer, ytd-compact-video-renderer { display: block; }
+    ytd-thumbnail { display: block; border-radius: 12px; overflow: hidden; aspect-ratio: 16 / 9; }
+    ytd-thumbnail img { width: 100%; height: 100%; display: block; object-fit: cover; }
+    #details h3 { font-size: 16px; margin: 10px 0 4px; line-height: 1.35; }
+    #details a { color: inherit; text-decoration: none; }
+    .ch, .ch a { color: #606060; font-size: 14px; text-decoration: none; }
+    .watch { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 24px; padding: 24px; }
+    #movie_player { aspect-ratio: 16 / 9; background: #000; border-radius: 12px; display: grid; place-items: center; color: #fff; }
+    #movie_player video { width: 0; height: 0; }
+    ytd-watch-metadata h1 { font-size: 20px; margin: 12px 0 4px; }
+    #related ytd-compact-video-renderer { display: grid; grid-template-columns: 168px 1fr; gap: 8px; margin-bottom: 12px; }
+    #related #details h3 { font-size: 14px; margin: 0 0 4px; }
+  </style>
+</head>
+<body>
+  <!-- Like real YouTube: a hidden hover-preview player that reuses the main player's classes and
+       sits *before* the watch page in the DOM. A naive "first video.html5-main-video" grabs this one. -->
+  <div id="inline-preview-player" class="html5-video-player" hidden><video class="video-stream html5-main-video"></video></div>
+  <div class="top"><a href="/">▶ YouTube <small>(mock)</small></a><span id="clock"></span></div>
+  <div id="app"></div>
+
+  <script src="/test/chrome-stub.js"></script>
+  <!-- background side (in a real install this lives in the service worker) -->
+  <script src="/src/hooks.js"></script>
+  <script src="/src/model.js"></script>
+  <script src="/src/demo.js"></script>
+  <script src="/src/store.js"></script>
+  <script>
+    const VIDEOS = [
+      ["You WON'T Believe What Happened Next...", "ClickVortex", 1], ["How Transformers Work, Explained Visually", "3Blue Explainer", 0],
+      ["The Truth About Seed Oils Nobody Tells You", "Shock Lab", 1], ["A Quiet Morning Hike in the Dolomites", "Slow Travel", 0],
+      ["This Streamer Got EXPOSED Live 😳😳😳", "DramaDaily", 1], ["Cooking Dal Makhani From Scratch", "Home Kitchen", 0],
+      ["STOP Doing This Before It's Too Late!!", "Shock Lab", 1], ["Lecture 4: Bayesian Inference", "Open Lectures", 0],
+      ["I Spent $100,000 On The World's Biggest Pizza", "ViralVault", 1], ["Learning Jazz Piano: Week 12", "Workshop Notes", 0],
+      ["Everyone Is Talking About This New Phone", "TopTenTonight", 1], ["Why Bridges Don't Fall Down", "3Blue Explainer", 0],
+      ["He DESTROYED Them In 30 Seconds", "DramaDaily", 1], ["Exploring Old Tokyo Neighbourhoods", "Slow Travel", 0],
+      ["Warning: Your Phone Is Doing This Right Now", "ClickVortex", 1], ["Chess Endgames for Club Players", "Open Lectures", 0],
+      ["The Most Insane Plot Twist Of All Time", "Curious Science", 1], ["Painting a Watercolour Sunset", "Workshop Notes", 0],
+      ["Leaked Footage Before It's Deleted", "ViralVault", 1], ["A Short History of the Printing Press", "Open Lectures", 0],
+    ].map(([title, channel, loud], i) => ({ id: `mockvid${String(i).padStart(4, "0")}`, title, channel, loud }));
+
+    const thumb = (v) => {
+      const [a, b] = v.loud ? ["#ff2a1a", "#ffd400"] : ["#5f7a8a", "#a9b8a6"];
+      return "data:image/svg+xml," + encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 9'>
+        <defs><linearGradient id='g'><stop offset='0' stop-color='${a}'/><stop offset='1' stop-color='${b}'/></linearGradient></defs>
+        <rect width='16' height='9' fill='url(#g)'/><text x='8' y='5.6' font-size='2' text-anchor='middle' fill='white' font-family='Arial'>${v.id.slice(-2)}</text></svg>`);
+    };
+    const card = (v, tag) => `<${tag}><div id="dismissible">
+        <ytd-thumbnail><a id="thumbnail" href="/watch?v=${v.id}"><img src="${thumb(v)}" alt=""></a></ytd-thumbnail>
+        <div id="details"><h3><a id="video-title-link" href="/watch?v=${v.id}" title="${v.title.replace(/"/g, "&quot;")}">
+          <yt-formatted-string id="video-title">${v.title}</yt-formatted-string></a></h3>
+          <div class="ch"><ytd-channel-name><a href="/@${v.channel.replace(/\s/g, "")}">${v.channel}</a></ytd-channel-name></div></div>
+      </div></${tag}>`;
+
+    let fakePlayer = null;
+    function render() {
+      clearInterval(fakePlayer);
+      const app = document.getElementById("app");
+      if (location.pathname === "/watch") {
+        const v = VIDEOS.find((x) => x.id === new URLSearchParams(location.search).get("v")) || VIDEOS[0];
+        app.innerHTML = `<div class="watch"><div>
+            <div id="movie_player"><video class="html5-main-video"></video><div id="pt">▶ playing (2× speed)</div></div>
+            <ytd-watch-metadata><h1><yt-formatted-string>${v.title}</yt-formatted-string></h1>
+              <ytd-channel-name><a href="/">${v.channel}</a></ytd-channel-name></ytd-watch-metadata></div>
+          <div id="related">${VIDEOS.filter((x) => x !== v).slice(0, 8).map((x) => card(x, "ytd-compact-video-renderer")).join("")}</div></div>`;
+        // Fake playback at 2× speed: the clock advances 0.2 s every 100 ms.
+        const video = app.querySelector("video");
+        let t = 0;
+        Object.defineProperty(video, "currentTime", { get: () => t });
+        Object.defineProperty(video, "paused", { get: () => false });
+        Object.defineProperty(video, "duration", { get: () => 300 });
+        fakePlayer = setInterval(() => {
+          t += 0.2;
+          document.getElementById("pt").textContent = `▶ watched ${Math.round(t)}s (2× speed)`;
+          video.dispatchEvent(new Event("timeupdate"));
+        }, 100);
+      } else {
+        app.innerHTML = `<div id="contents">${VIDEOS.map((v) => card(v, "ytd-rich-item-renderer")).join("")}</div>`;
+      }
+    }
+    // ?navEvents=0 hides YouTube's navigation events from the extension (fired on an inner element
+    // without bubbling), to test that page changes are still noticed from the URL alone.
+    const navEvents = new URLSearchParams(location.search).get("navEvents") !== "0" && sessionStorage.getItem("noNav") !== "1";
+    if (!navEvents) sessionStorage.setItem("noNav", "1");
+    const fireNav = (type) => (navEvents ? window : document.getElementById("app")).dispatchEvent(new Event(type, { bubbles: false }));
+    function navigate(url) {
+      fireNav("yt-navigate-start");
+      history.pushState({}, "", url);
+      render();
+      setTimeout(() => fireNav("yt-navigate-finish"), 30);
+    }
+    document.addEventListener("click", (e) => {
+      const a = e.target.closest("a[href^='/']");
+      if (!a) return;
+      e.preventDefault();
+      navigate(a.getAttribute("href"));
+    });
+    window.addEventListener("popstate", () => {
+      fireNav("yt-navigate-start");
+      render();
+      fireNav("yt-navigate-finish");
+    });
+    render();
+
+    // ?shot=1 — screenshot mode for the README: three weeks of demo ratings, a just-finished video
+    // awaiting a rating, panel open. Sets up storage, then reloads so the content script starts from it.
+    // The content script is injected from here (not a static tag) so screenshot mode can set up first.
+    const loadContentScript = () => document.body.appendChild(Object.assign(document.createElement("script"), { src: "/src/content.js" }));
+    if (new URLSearchParams(location.search).has("shot")) {
+      localStorage.removeItem("wi-mock-storage");
+      const v = VIDEOS[6];
+      chrome.runtime.sendMessage({ type: "loadDemo" }, () =>
+        chrome.runtime.sendMessage({ type: "watchEnd", watch: { id: v.id, title: v.title, channel: v.channel,
+          hooks: WorthIt.detectHooks(v.title, 0.8), ts: Date.now(), depth: 4, watchedSec: 140, durationSec: 600 } }, () => {
+          loadContentScript();
+          setTimeout(() => document.querySelector(".wi-panel-toggle")?.click(), 1500);
+        }));
+    } else {
+      loadContentScript();
+    }
+  </script>
+</body>
+</html>

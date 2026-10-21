@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Your Brain on YouTube</title>
+  <link rel="stylesheet" href="report.css">
+</head>
+<body>
+  <main>
+    <div id="demoBanner" class="banner" hidden>Showing <b>demo data</b> from a simulated viewer. <button data-action="reset">Clear it and use my real data</button></div>
+
+    <header>
+      <p class="eyebrow">Worth It? · personal report</p>
+      <h1>Your Brain on YouTube</h1>
+      <p class="lede">What you <span class="want">want</span> (click) vs. what you <span class="like">like</span> (are glad you watched).
+        Psychologists Berridge &amp; Robinson showed these run on separate brain systems, so a video can pull you in without paying off.</p>
+      <p class="range" id="range"></p>
+    </header>
+
+    <section class="tiles" id="tiles"></section>
+
+    <section>
+      <h2>Your insights</h2>
+      <ul class="insights" id="insights"></ul>
+    </section>
+
+    <section>
+      <h2>The hooks: what pulls you vs. what pays off</h2>
+      <p class="sub">Click rate: how often you click a video with this hook when it's on screen. Worth it: how often you rated it 4–5 after watching. The dashed line marks videos with no hook.</p>
+      <div id="hooks"></div>
+    </section>
+
+    <section class="grid2">
+      <div>
+        <h2>When you're most vulnerable</h2>
+        <p class="sub">Share of videos rated worth it, by hour of day.</p>
+        <div id="byHour"></div>
+      </div>
+      <div>
+        <h2>The rabbit hole</h2>
+        <p class="sub">Share rated worth it, by how deep into a session the video was.</p>
+        <div id="byDepth"></div>
+      </div>
+    </section>
+
+    <section class="grid2">
+      <div>
+        <h2>Mood</h2>
+        <p class="sub">Share rated worth it, by how you said you felt.</p>
+        <div id="byMood"></div>
+      </div>
+      <div>
+        <h2>Channels</h2>
+        <p class="sub">Average rating, channels you rated at least twice.</p>
+        <div id="channels"></div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Recently watched</h2>
+      <div id="recent"></div>
+    </section>
+
+    <footer>
+      <p>All data stays in this browser. Nothing is uploaded.</p>
+      <div class="actions">
+        <button data-action="export">Export my data (JSON)</button>
+        <button data-action="demo">Load demo data</button>
+        <button data-action="reset" class="danger">Delete all data</button>
+      </div>
+    </footer>
+  </main>
+  <script src="../src/hooks.js"></script>
+  <script src="../src/model.js"></script>
+  <script src="report.js"></script>
+</body>
+</html>

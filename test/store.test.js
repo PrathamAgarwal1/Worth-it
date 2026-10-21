@@ -1,0 +1,114 @@
+// Run: node --test test/hooks.test.js test/model.test.js test/store.test.js
+// Storage flows with an in-memory chrome.storage: return visits, "finishing later", "got what I needed".
+const test = require("node:test");
+const assert = require("node:assert/strict");
+
+let data = {};
+globalThis.chrome = {
+  storage: {
+    local: {
+      get: async (keys) => {
+        const list = keys == null ? Object.keys(data) : typeof keys === "string" ? [keys] : keys;
+        return Object.fromEntries(list.filter((k) => k in data).map((k) => [k, structuredClone(data[k])]));
+      },
+      set: async (obj) => Object.assign(data, structuredClone(obj)),
+      clear: async () => (data = {}),
+    },
+  },
+};
+require("../src/model.js");
+require("../src/store.js");
+const S = globalThis.WorthItStore;
+const W = globalThis.WorthIt;
+const DAY = W.DAY_MS;
+
+const find = (id) => data.watches.filter((w) => w.id === id);
+const age = (id, days) => find(id).forEach((w) => { w.ts -= days * DAY; w.lastTs = (w.lastTs || w.ts) - days * DAY; });
+async function view(id, watchedSec, durationSec = 900) {
+  const c = await S.watchStart({ id });
+  const ts = c.resume ? c.resume.ts : Date.now();
+  await S.watchEnd({ id, title: id, channel: "Chan", hooks: [], ts, lastTs: Date.now(), depth: c.depth,
+                     watchedSec: (c.resume ? c.resume.watchedSec : 0) + watchedSec, durationSec });
+  return { ts, resumed: !!c.resume };
+}
+
+test("return visits continue the same viewing, and an early exit is never held against it", async () => {
+  await S.reset();
+  await S.init();
+  const first = await view("v1", 60);                        // leave at ~7%
+  await S.dismiss({ id: "v1", ts: first.ts });
+  assert.equal(data.model.nLike, 0, "early exit is not learned yet");
+  age("v1", 1);                                              // come back the next day
+  const second = await view("v1", 640);
+  assert.equal(second.resumed, true);
+  assert.equal(second.ts, first.ts - DAY, "same viewing key (shifted by the simulated day)");
+  const [w] = find("v1");
+  assert.equal(find("v1").length, 1, "one viewing, not two");
+  assert.equal(w.visits, 2);
+  assert.equal(w.watchedSec, 700);
+  await S.dismiss({ id: "v1", ts: w.ts });                   // skip the prompt: 78% watched -> weak "liked it"
+  assert.equal(data.model.nLike, 1);
+  assert.ok(data.model.channels.chan.like > 0);
+});
+
+test("an early exit with no return counts as a weak negative after 3 days", async () => {
+  await S.reset();
+  await S.init();
+  const { ts } = await view("v2", 30);
+  await S.dismiss({ id: "v2", ts });
+  age("v2", 4);
+  await view("other", 20);                                   // any later watch settles old viewings
+  assert.equal(find("v2")[0].learned, true);
+  assert.ok(data.model.channels.chan.like < 0);
+});
+
+test("'Finishing later' learns nothing, isn't asked about again, and resumes", async () => {
+  await S.reset();
+  await S.init();
+  const { ts } = await view("v3", 45);
+  await S.later({ id: "v3", ts });
+  assert.equal(await S.pendingRating(), null, "not asked again while waiting");
+  age("v3", 5);
+  await view("other", 20);
+  assert.equal(find("v3")[0].learned, undefined, "still waiting for you after 5 days");
+  const back = await view("v3", 600);
+  assert.equal(back.resumed, true);
+  assert.equal(find("v3")[0].later, false);
+  age("v3", 20);
+  await view("other2", 20);
+  assert.equal(data.model.nLike, 1, "only the finished viewing taught it anything");
+});
+
+test("'Finishing later' that you never finish is dropped, not counted against it", async () => {
+  await S.reset();
+  await S.init();
+  const { ts } = await view("v4", 45);
+  await S.later({ id: "v4", ts });
+  age("v4", 15);
+  await view("other", 20);
+  assert.equal(find("v4")[0].learned, true);
+  assert.equal(data.model.nLike, 0);
+});
+
+test("'Got what I needed' counts as worth it without finishing", async () => {
+  await S.reset();
+  await S.init();
+  const { ts } = await view("v5", 120);
+  await S.rate({ id: "v5", ts, rating: 4, partial: true });
+  const [w] = find("v5");
+  assert.equal(w.partial, true);
+  assert.equal(w.rating, 4);
+  assert.equal(data.stats.none.worth, 1);
+  assert.ok(data.model.channels.chan.like > 0);
+});
+
+test("a finished, rated video watched again later is a new viewing", async () => {
+  await S.reset();
+  await S.init();
+  const { ts } = await view("v6", 800);
+  await S.rate({ id: "v6", ts, rating: 5 });
+  age("v6", 2);
+  const again = await view("v6", 100);
+  assert.equal(again.resumed, false);
+  assert.equal(find("v6").length, 2);
+});

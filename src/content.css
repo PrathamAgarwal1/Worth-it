@@ -1,0 +1,167 @@
+/* Worth It? — styles injected into youtube.com. Everything is prefixed wi- to avoid clashes.
+   Design goal: quiet. Small, faded marks that explain themselves on hover; nothing that moves
+   or competes with the videos for attention. */
+:root {
+  --wi-want: #eb6834;
+  --wi-like: #2a78d6;
+  --wi-good: #1baf7a;
+  --wi-card: #ffffff;
+  --wi-text: #0f0f0f;
+  --wi-muted: #606060;
+  --wi-line: rgba(0, 0, 0, 0.1);
+  --wi-chip: rgba(15, 15, 15, 0.55);
+}
+html[dark] {
+  --wi-card: #212121;
+  --wi-text: #f1f1f1;
+  --wi-muted: #aaaaaa;
+  --wi-line: rgba(255, 255, 255, 0.12);
+}
+
+/* ---- Badges on thumbnails: a small icon; the words appear when you hover the video ---- */
+.wi-host { position: relative !important; }
+.wi-badge {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: calc(100% - 12px);
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--wi-chip);
+  color: #fff;
+  font: 500 11px/1.5 Roboto, Arial, sans-serif;
+  white-space: nowrap;
+  overflow: hidden;
+  opacity: 0.75;
+  pointer-events: auto;
+  cursor: help;
+  transition: opacity 0.15s ease;
+}
+.wi-b-text { display: none; overflow: hidden; text-overflow: ellipsis; }
+[data-wi-vid]:hover .wi-badge { opacity: 1; }
+[data-wi-vid]:hover .wi-b-text { display: inline; }
+.wi-badge-junk { background: rgba(235, 104, 52, 0.85); opacity: 0.9; }
+.wi-badge-good { background: rgba(27, 175, 122, 0.8); }
+
+/* ---- Junk food: a gentle blur that lowers the thumbnail's pull; hover to reveal ---- */
+.wi-blur :is(ytd-thumbnail, yt-thumbnail-view-model, a#thumbnail, .yt-lockup-view-model__content-image, .yt-lockup-view-model-wiz__content-image) img {
+  filter: blur(6px) saturate(0.5);
+  transition: filter 0.2s ease;
+}
+.wi-blur:hover :is(ytd-thumbnail, yt-thumbnail-view-model, a#thumbnail, .yt-lockup-view-model__content-image, .yt-lockup-view-model-wiz__content-image) img {
+  filter: none;
+}
+
+/* ---- Floating panel: a small faded icon until you open it ---- */
+.wi-panel {
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  z-index: 9999;
+  width: 300px;
+  max-width: calc(100vw - 32px);
+  font: 14px/1.4 Roboto, Arial, sans-serif;
+  color: var(--wi-text);
+  pointer-events: none;      /* only the button and body take clicks */
+}
+.wi-panel-toggle {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--wi-line);
+  border-radius: 50%;
+  background: var(--wi-card);
+  font-size: 16px;
+  line-height: 1;
+  opacity: 0.45;
+  cursor: pointer;
+  pointer-events: auto;
+  transition: opacity 0.15s ease;
+}
+.wi-panel-toggle:hover { opacity: 1; }
+.wi-dot {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  border-radius: 999px;
+  background: var(--wi-want);
+  color: #fff;
+  font: 600 10px/15px Roboto, Arial, sans-serif;
+}
+.wi-panel-body {
+  margin-top: 8px;
+  padding: 12px;
+  border: 1px solid var(--wi-line);
+  border-radius: 12px;
+  background: var(--wi-card);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.16);
+  pointer-events: auto;
+}
+.wi-panel-h { font-weight: 600; margin-bottom: 6px; }
+.wi-panel-state { font-size: 12px; padding: 6px 8px; margin-bottom: 8px; border-radius: 8px; background: var(--wi-line); color: var(--wi-muted); }
+.wi-pick { display: flex; gap: 10px; padding: 6px 4px; border-radius: 8px; cursor: pointer; }
+.wi-pick:hover { background: var(--wi-line); }
+.wi-pick b { color: var(--wi-like); min-width: 36px; font-weight: 600; }
+.wi-pick span { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.wi-panel-foot, .wi-empty { margin-top: 8px; font-size: 12px; color: var(--wi-muted); }
+
+/* ---- "Worth it?" prompt: compact, one row of faces ---- */
+.wi-prompt {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 9999;
+  width: 260px;
+  max-width: calc(100vw - 32px);
+  padding: 10px 12px;
+  border: 1px solid var(--wi-line);
+  border-radius: 12px;
+  background: var(--wi-card);
+  color: var(--wi-text);
+  font: 13px/1.4 Roboto, Arial, sans-serif;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.16);
+  animation: wi-in 0.2s ease-out;
+}
+@keyframes wi-in { from { opacity: 0; } to { opacity: 1; } }
+.wi-head { display: flex; justify-content: space-between; align-items: center; }
+.wi-q { font-weight: 600; font-size: 14px; }
+.wi-x { border: 0; background: none; color: var(--wi-muted); font-size: 18px; line-height: 1; cursor: pointer; padding: 0 2px; }
+.wi-t { color: var(--wi-muted); font-size: 12px; margin: 1px 0 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wi-rate { display: flex; justify-content: space-between; gap: 4px; }
+.wi-rate button {
+  flex: 1;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  font-size: 20px;
+  line-height: 1;
+  padding: 5px 0;
+  cursor: pointer;
+  filter: grayscale(0.35);
+  transition: background 0.12s ease, filter 0.12s ease;
+}
+.wi-rate button:hover { background: var(--wi-line); filter: none; }
+.wi-more { margin-top: 6px; border: 0; background: none; color: var(--wi-muted); font: 11px Roboto, Arial, sans-serif; cursor: pointer; padding: 0; }
+.wi-more:hover { color: var(--wi-text); }
+.wi-alt { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px; }
+.wi-alt button, .wi-mood button {
+  border: 1px solid var(--wi-line);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--wi-text);
+  font: 11px Roboto, Arial, sans-serif;
+  padding: 5px 4px;
+  cursor: pointer;
+}
+.wi-alt button:hover, .wi-mood button:hover { border-color: var(--wi-like); }
+.wi-mood { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 8px; font-size: 11px; color: var(--wi-muted); }
+.wi-mood span { width: 100%; }
+.wi-mood button.on { border-color: var(--wi-like); background: rgba(42, 120, 214, 0.12); }
+.wi-thanks { color: var(--wi-muted); font-size: 12px; padding: 2px 0; }
