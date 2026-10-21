@@ -2,7 +2,7 @@
 
 **A Chrome extension that shows how YouTube hooks your brain, and learns the difference between what you click and what you actually enjoy.**
 
-**[Website](https://prathamagarwal1.github.io/Worth-it/) · [Download for Chrome](https://github.com/PrathamAgarwal1/Worth-it/releases/latest/download/worth-it.zip) · [Install steps](#install-2-minutes)**
+**[Website](https://prathamagarwal1.github.io/Worth-it/) · [Download for Chrome](https://github.com/PrathamAgarwal1/Worth-it/raw/main/docs/worth-it.zip) · [Install steps](#install-2-minutes)**
 
 ![Worth It? on the YouTube home feed: a worth-it % on every thumbnail, and the brain menu in the top bar listing the most worth-it videos on the page](docs/feed.jpg)
 
@@ -36,7 +36,7 @@ YouTube's recommender learns from what you *click*, which is wanting. Worth It? 
 
 ## Install (2 minutes)
 
-1. Download [worth-it.zip](https://github.com/PrathamAgarwal1/Worth-it/releases/latest/download/worth-it.zip) from the latest release and unzip it (or clone this repository).
+1. Download [worth-it.zip](https://github.com/PrathamAgarwal1/Worth-it/raw/main/docs/worth-it.zip) and unzip it (or clone this repository).
 2. In Chrome, open `chrome://extensions`.
 3. Turn on **Developer mode** (top right).
 4. Click **Load unpacked** and pick the `worth-it` folder.
