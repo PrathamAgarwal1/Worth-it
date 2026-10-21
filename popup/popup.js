@@ -5,7 +5,7 @@ const STRICTNESS = ["off", "gentle", "gentle", "medium", "medium", "strict", "st
 async function load() {
   const { settings = {}, watches = [], demo } = await chrome.storage.local.get(["settings", "watches", "demo"]);
   for (const k of ["blur", "badges"]) $(k).checked = settings[k] !== false;
-  $("askMode").value = settings.askRating === false ? "never" : settings.askMode || "sometimes";
+  $("askMode").value = settings.askRating === false ? "never" : settings.askMode || "bar";
   $("lambda").value = settings.lambda ?? 1;
   $("lambdaVal").textContent = STRICTNESS[Math.round(($("lambda").value) * 4)];
 

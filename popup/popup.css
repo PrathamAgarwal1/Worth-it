@@ -26,4 +26,5 @@ input[type=checkbox] { accent-color: var(--like); width: 16px; height: 16px; }
 .primary { width: 100%; border: 0; border-radius: 10px; padding: 10px; background: var(--like); color: #fff; font: 600 13px inherit; cursor: pointer; }
 .primary:hover { filter: brightness(1.08); }
 .privacy { text-align: center; color: var(--muted); font-size: 11px; margin: 8px 0 0; }
-select { font: inherit; font-size: 12px; padding: 3px 6px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--text); }
+.nowrap { white-space: nowrap; }
+select { min-width: 0; flex: 1; max-width: 190px; font: inherit; font-size: 12px; padding: 3px 6px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--text); }

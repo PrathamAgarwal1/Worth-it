@@ -167,3 +167,51 @@ html[dark] {
 .wi-mood span { width: 100%; }
 .wi-mood button.on { border-color: var(--wi-like); background: rgba(42, 120, 214, 0.12); }
 .wi-thanks { color: var(--wi-muted); font-size: 12px; padding: 2px 0; }
+
+/* ---- The bar under the video: always there, never in the way ---- */
+.wi-bar {
+  margin: 12px 0 4px;
+  padding: 6px 12px;
+  border: 1px solid var(--wi-line);
+  border-radius: 12px;
+  background: var(--wi-card);
+  color: var(--wi-text);
+  font: 14px/1.4 Roboto, Arial, sans-serif;
+  transition: border-color 0.3s ease, background 0.3s ease;
+}
+.wi-bar-nudge { border-color: var(--wi-like); background: rgba(42, 120, 214, 0.06); }
+.wi-bar-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-height: 36px; }
+.wi-bar-q { font-weight: 500; white-space: nowrap; }
+.wi-bar-faces { display: inline-flex; gap: 2px; }
+.wi-bar-faces button {
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  filter: grayscale(0.6);
+  opacity: 0.8;
+  transition: background 0.12s ease, filter 0.12s ease, opacity 0.12s ease, transform 0.12s ease;
+}
+.wi-bar-faces button:hover { background: var(--wi-line); filter: none; opacity: 1; transform: scale(1.1); }
+.wi-bar-faces button.on { background: rgba(42, 120, 214, 0.16); box-shadow: inset 0 0 0 2px var(--wi-like); filter: none; opacity: 1; }
+.wi-bar-chip {
+  border: 1px solid var(--wi-line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--wi-text);
+  font: 12px Roboto, Arial, sans-serif;
+  padding: 4px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.wi-bar-chip:hover { border-color: var(--wi-like); }
+.wi-bar-chip.on { border-color: var(--wi-like); background: rgba(42, 120, 214, 0.12); }
+.wi-bar-status { margin-left: auto; font-size: 12px; }
+.wi-bar-note { color: var(--wi-muted); }
+.wi-bar-note b { color: var(--wi-like); font-weight: 600; }
+.wi-bar-ok { color: var(--wi-good); font-weight: 500; }
+.wi-bar-mood { min-height: 30px; font-size: 12px; color: var(--wi-muted); border-top: 1px solid var(--wi-line); margin-top: 4px; padding-top: 4px; }

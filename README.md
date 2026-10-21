@@ -15,7 +15,7 @@ YouTube's recommender learns from what you *click*, which is wanting. Worth It? 
 | | Feature | The psychology behind it |
 |---|---|---|
 | 🔍 | **Spots the hook** in every title and thumbnail, and labels it: curiosity gap, outrage, fear, FOMO, social proof, hype, shouting, loud thumbnail | Information-gap theory (Loewenstein), negativity bias, scarcity and social proof (Cialdini), incentive salience |
-| ❓ | **Asks "Was that worth it?"** (1–5) after you watch, plus an optional mood check. Two more answers for videos you didn't finish: **✂️ Got what I needed** (counts as worth it) and **⏸ Finishing later** (learns nothing now, asks again when you're done) | Experience sampling: rating in the moment, not from memory |
+| ❓ | **"Worth it?" right under the video**: a slim bar beneath the player with five faces (1–5), your predicted worth-it %, and an optional mood check. Rate any time, change it any time; no popups unless you turn them on. Two more answers for videos you didn't finish: **✂️ Got what I needed** (counts as worth it) and **⏸ Finishing later** (learns nothing until you finish) | Experience sampling: rating in the moment, not from memory |
 | ↩️ | **One entry per video**: watching a video again adds to the same entry, and rating it again replaces your earlier answer | |
 | 🧠 | **Learns *your* wanting vs liking**: which hooks make you click, and which ones actually pay off, per hook *and per channel* | Two small personal models: P(click) and P(glad you watched) |
 | ⏱️ | **Learns even when you don't rate**: finishing most of a video counts as a weak "liked it". Leaving in the first 20% counts as a weak "didn't" only if you don't come back within 3 days. Leaving halfway counts as nothing | Behavioural signal to complement self-report |
@@ -36,7 +36,7 @@ YouTube's recommender learns from what you *click*, which is wanting. Worth It? 
 4. Click **Load unpacked** and pick the `worth-it` folder.
 5. Pin the 🧠 icon, then open YouTube.
 
-To use it, browse normally. Every video shows its **worth-it %**; hover the badge to see *why*. After a video, answer "Was that worth it?" (it takes one second). Open the report from the toolbar icon. To see what it looks like before you have data, click **Load demo data** at the bottom of the report.
+To use it, browse normally. Every video shows its **worth-it %**; hover the badge to see *why*. Under the video you're watching, tap a face to say whether it was worth it (it takes one second; the bar lights up when the video ends). Prefer a popup? Pick one in the toolbar popup. Open the report from the toolbar icon. To see what it looks like before you have data, click **Load demo data** at the bottom of the report.
 
 ## Privacy
 

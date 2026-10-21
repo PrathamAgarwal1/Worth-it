@@ -19,10 +19,11 @@
   <section class="controls">
     <label class="row"><span>Blur junk-food thumbnails</span><input type="checkbox" id="blur"></label>
     <label class="row"><span>Show hook badges</span><input type="checkbox" id="badges"></label>
-    <label class="row"><span>Ask "Worth it?"</span>
+    <label class="row"><span class="nowrap">Ask "Worth it?"</span>
       <select id="askMode">
-        <option value="sometimes">Sometimes (max 1 per 10 min)</option>
-        <option value="often">After every video</option>
+        <option value="bar">Under the video</option>
+        <option value="often">Under the video + popup every time</option>
+        <option value="sometimes">Under the video + popup sometimes</option>
         <option value="never">Never</option>
       </select>
     </label>

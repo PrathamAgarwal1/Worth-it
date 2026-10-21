@@ -15,7 +15,7 @@
   const MIN_WATCH_SEC = 15;
 
   let dead = false;   // set once the extension is reloaded and this copy of the script is orphaned
-  let settings = { blur: true, badges: true, askRating: true, askMode: "sometimes", lambda: 1 };
+  let settings = { blur: true, badges: true, askRating: true, askMode: "bar", lambda: 1 };
   let model = W.freshModel();
   let ctx = { depth: 0, lateNight: W.isLateNight(new Date()) };
   const thumbArousal = new Map();          // videoId -> arousal (or null while loading)
@@ -166,6 +166,7 @@
       scanTimer = null;
       document.querySelectorAll(CARD).forEach(processCard);
       schedulePanel();
+      ensureBar();   // YouTube re-renders the area under the player; put the bar back if it went
     }, 250);
   }
 
@@ -328,6 +329,10 @@
   let endedId = null, endedAt = 0;
   function finishWatch() {
     const v = mainVideo();
+    if (barState && barState.id === watch.id) {   // finished: the bar asks, quietly
+      barState.ended = true;
+      renderBar();
+    }
     endedId = watch.id;
     endedAt = v ? v.currentTime : 0;
     endWatch();
@@ -370,6 +375,9 @@
     endedId = null;
     pausedSince = null;
     if (card) Object.assign(mine, { title: card.title, channel: card.channel, hooks: card.hooks });
+    barState = { id, rating: mine.prevRating, partial: mine.prevPartial, mood: (resume && resume.mood) || null, later: false, status: "",
+                 pred: card ? card.s.worthIt : null, ended: false };
+    renderBar();
     const prev = lastMeta;
     let tries = 0;
     clearInterval(metaTimer);
@@ -393,6 +401,10 @@
           if (a != null) thumbArousal.set(id, a);
         }
         mine.hooks = W.detectHooks(mine.title, thumbArousal.get(id) ?? undefined);
+        if (barState && barState.id === id) {
+          barState.pred = W.score(model, mine.hooks, ctx, settings.lambda, mine.channel).worthIt;
+          renderBar();
+        }
       }
     }, 500);
     clearInterval(checkpoint);
@@ -402,13 +414,15 @@
 
   // ended: you left the video (vs. a checkpoint while it's still playing).
   const snapshot = (ended) => {
-    const { visitSec, ...w } = watch;
+    const { visitSec, prevRating, prevPartial, answered, ...w } = watch;
     return { ...w, watchedSec: Math.round(watch.watchedSec), ended };
   };
 
   async function endWatch() {
     if (!watch) return;
     const w = snapshot(true);
+    // What the popup needs to know beyond what's saved: your earlier answer, and whether you answered in the bar.
+    const ask = { ...w, answered: watch.answered, prevRating: watch.prevRating, prevPartial: watch.prevPartial };
     watch = null;
     clearInterval(tick);
     clearInterval(checkpoint);
@@ -418,7 +432,7 @@
     if (w.watchedSec < MIN_WATCH_SEC) return;
     await send("watchEnd", { watch: w });
     // The video you just left always wins over an older prompt still on screen.
-    if (await mayAsk(w, true)) showPrompt(w);
+    if (await mayAsk(ask, true)) showPrompt(ask);
     else send("skip", { id: w.id, ts: w.ts });   // not asking: don't bring it up later either
   }
 
@@ -426,10 +440,10 @@
   //   sometimes (default): after ≥ 1 minute of watching, at most once every 10 minutes
   //   often:               after every video watched ≥ 15 s
   const ASK = { often: { minSec: MIN_WATCH_SEC, gapMin: 0 }, sometimes: { minSec: 60, gapMin: 10 } };
-  const askMode = () => (settings.askRating === false ? "never" : settings.askMode || "sometimes");
+  const askMode = () => (settings.askRating === false ? "never" : settings.askMode || "bar");
   async function mayAsk(w, replace = false) {
     const rule = ASK[askMode()];
-    if (!rule || (prompt && !replace) || w.watchedSec < rule.minSec) return false;
+    if (!rule || (prompt && !replace) || w.watchedSec < rule.minSec || w.answered) return false;
     try {
       const { lastAskTs = 0 } = await chrome.storage.local.get("lastAskTs");
       return Date.now() - lastAskTs >= rule.gapMin * 60000;
@@ -440,18 +454,104 @@
 
   /** Ask about a video you left in the last few minutes without being asked, e.g. by closing its tab. */
   async function askPending() {
-    if (prompt || askMode() === "never") return;
+    if (prompt || !ASK[askMode()]) return;
     const p = await send("pendingRating");
     if (p && !prompt && (!watch || watch.id !== p.id) && (await mayAsk(p))) showPrompt(p);
   }
 
   const FACES = [["😩", "Waste"], ["😕", "Meh"], ["😐", "OK"], ["🙂", "Good"], ["🤩", "Loved it"]];
+  const MOODS = [["calm", "😌"], ["good", "🙂"], ["tired", "😴"], ["stressed", "😣"]];
+
+  // ---- The bar under the video: rate any time, change your mind any time ---------------------
+  let bar = null, barHtml = "";
+  let barState = null;   // {id, rating, partial, mood, later, status, pred, ended} for the video on this page
+
+  function barAnchor() {
+    const below = document.querySelector("ytd-watch-flexy #below");
+    if (below) return { parent: below, before: below.firstChild };
+    const meta = document.querySelector("ytd-watch-flexy ytd-watch-metadata") || document.querySelector("ytd-watch-metadata");
+    return meta && { parent: meta.parentElement, before: meta };
+  }
+
+  function ensureBar() {
+    const want = !dead && barState && askMode() !== "never" && location.pathname === "/watch";
+    const a = want && barAnchor();
+    if (!a) {
+      if (bar) bar.remove();
+      return;
+    }
+    if (!bar) {
+      bar = document.createElement("div");
+      bar.className = "wi-bar";
+      bar.addEventListener("click", onBarClick);
+    }
+    if (bar.parentElement !== a.parent || (a.before !== bar && bar.nextSibling !== a.before)) a.parent.insertBefore(bar, a.before);
+  }
+
+  function renderBar() {
+    ensureBar();
+    if (!bar || !barState) return;
+    const b = barState;
+    const face = (i) => `<button data-r="${i + 1}" title="${FACES[i][1]}" class="${!b.partial && b.rating === i + 1 ? "on" : ""}">${FACES[i][0]}</button>`;
+    const status = b.status
+      ? `<span class="wi-bar-ok">✓ ${esc(b.status)}</span>`
+      : b.rating != null ? `<span class="wi-bar-note">Your rating from last time · tap to change</span>`
+      : b.later ? `<span class="wi-bar-note">⏸ Finishing later</span>`
+      : b.pred != null ? `<span class="wi-bar-note" title="Your personal model's guess: the chance you'll be glad you watched">Predicted for you: <b>${pct(b.pred)}</b></span>`
+      : "";
+    const html = `
+      <div class="wi-bar-row">
+        <span class="wi-bar-q">${b.ended && b.rating == null ? "Finished. Worth it?" : "Worth it?"}</span>
+        <span class="wi-bar-faces">${FACES.map((_, i) => face(i)).join("")}</span>
+        <button class="wi-bar-chip${b.partial ? " on" : ""}" data-a="partial" title="Counts as worth it, even though you didn't watch it all">✂️ Got what I needed</button>
+        ${b.rating == null ? `<button class="wi-bar-chip${b.later ? " on" : ""}" data-a="later" title="Nothing is learned until you finish it">⏸ Finishing later</button>` : ""}
+        <span class="wi-bar-status">${status}</span>
+      </div>
+      ${b.rating != null ? `<div class="wi-bar-row wi-bar-mood"><span>Right now I feel</span>${MOODS.map(([m, e]) =>
+        `<button class="wi-bar-chip${b.mood === m ? " on" : ""}" data-m="${m}">${e} ${m}</button>`).join("")}</div>` : ""}`;
+    bar.classList.toggle("wi-bar-nudge", b.ended && b.rating == null);
+    if (html !== barHtml) bar.innerHTML = barHtml = html;
+  }
+
+  async function onBarClick(e) {
+    const b = barState;
+    const r = e.target.closest("[data-r]"), a = e.target.closest("[data-a]"), m = e.target.closest("[data-m]");
+    if (!b || !(r || a || m)) return;
+    const live = watch && watch.id === b.id ? snapshot(false) : null;   // lets it save a video not saved yet
+    if (watch && watch.id === b.id) watch.answered = true;              // answered here: no popup for it
+    if (prompt && closePrompt && promptId === b.id) closePrompt(false);
+    if (r || (a && a.dataset.a === "partial")) {
+      const had = b.rating != null;
+      b.rating = r ? +r.dataset.r : 4;
+      b.partial = !r;
+      b.later = false;
+      b.status = had ? "Updated" : "Saved";
+      renderBar();
+      await send("rate", { id: b.id, rating: b.rating, mood: b.mood, partial: b.partial, watch: live });
+    } else if (a && a.dataset.a === "later") {
+      b.later = true;
+      renderBar();
+      await send("later", { id: b.id, watch: live });
+    } else if (m) {
+      b.mood = b.mood === m.dataset.m ? null : m.dataset.m;
+      b.status = "Saved";
+      renderBar();
+      await send("rate", { id: b.id, rating: b.rating, mood: b.mood, partial: b.partial, watch: live });
+    }
+  }
+
   const PROMPT_MS = 30000;
-  let prompt = null;
+  let prompt = null, promptId = null;
   let closePrompt = null;
+  function syncBar(id, patch) {
+    if (!barState || barState.id !== id) return;
+    Object.assign(barState, patch, { status: "Saved" });
+    renderBar();
+  }
   function showPrompt(w) {
-    if (dead || askMode() === "never" || !alive()) return;
+    if (dead || !ASK[askMode()] || !alive()) return;
     if (closePrompt) closePrompt(true);
+    promptId = w.id;
     let mood = null;
     chrome.storage.local.set({ lastAskTs: Date.now() });
     prompt = document.createElement("div");
@@ -519,9 +619,11 @@
         prompt.querySelectorAll("[data-m]").forEach((b) => b.classList.toggle("on", b.dataset.m === mood));
       } else if (r) {
         send("rate", { id: w.id, ts: w.ts, rating: +r.dataset.r, mood });
+        syncBar(w.id, { rating: +r.dataset.r, partial: false, mood });
         thanks(w.prevRating != null ? "Updated" : "Thanks");
       } else if (a && a.dataset.a === "partial") {
         send("rate", { id: w.id, ts: w.ts, rating: 4, mood, partial: true });
+        syncBar(w.id, { rating: 4, partial: true, mood });
         thanks("Thanks");
       } else if (a && a.dataset.a === "later") {
         send("later", { id: w.id, ts: w.ts });
@@ -578,6 +680,7 @@
     if (changes.settings) settings = { ...settings, ...changes.settings.newValue };
     if (changes.model) model = changes.model.newValue || W.freshModel();
     if (changes.settings || changes.model) rescore();
+    if (changes.settings) renderBar();
   });
 
   // After the extension is reloaded or updated, this copy of the script keeps running in open tabs
@@ -593,7 +696,8 @@
     watch = null;
     if (prompt) prompt.remove();
     if (panel) panel.remove();
-    prompt = panel = null;
+    if (bar) bar.remove();
+    prompt = panel = bar = null;
   }
 
   (async () => {
