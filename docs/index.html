@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Worth It? — wanting vs liking on YouTube</title>
+  <meta name="description" content="A free Chrome extension that learns the difference between what you click on YouTube and what you’re actually glad you watched.">
+  <meta property="og:title" content="Worth It? — wanting vs liking on YouTube">
+  <meta property="og:description" content="A free Chrome extension that learns the difference between what you click on YouTube and what you’re actually glad you watched.">
+  <meta property="og:image" content="feed.jpg">
+  <link rel="icon" href="icon128.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:wght@500..700&family=DM+Sans:wght@400..700&display=swap">
+  <style>
+    :root {
+      --ink: #14161D; --ink-2: #1E212A; --paper: #F6F4EF; --card: #FDFCF9; --line: #E2DED5;
+      --text: #14161D; --body: #4A4F5C; --muted: #6B7080;
+      --want: #C4501D; --like: #2563C9; --good: #187A55;
+      --want-bright: #F07A45; --like-bright: #78A8F2;
+      --bg: var(--paper); --surface: var(--card);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #101217; --surface: #191C24; --line: #2A2E39;
+        --text: #F3F1EC; --body: #C4C8D2; --muted: #9AA0AE;
+        --want: #F07A45; --like: #78A8F2; --good: #4CC491;
+      }
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 17px/1.6 "DM Sans", Arial, sans-serif; -webkit-font-smoothing: antialiased; }
+    img { max-width: 100%; height: auto; display: block; }
+    a { color: var(--like); }
+    .wrap { max-width: 1120px; margin: 0 auto; padding: 0 16px; }
+    @media (min-width: 720px) { .wrap { padding: 0 32px; } }
+    h1, h2, h3 { font-family: Fraunces, Georgia, serif; font-weight: 600; letter-spacing: -0.01em; margin: 0; }
+    h2 { font-size: clamp(30px, 4.4vw, 46px); line-height: 1.12; }
+    h3 { font-size: 22px; line-height: 1.25; }
+    p { margin: 0; }
+    .eyebrow { font-size: 13px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; }
+    section { padding: 72px 0; }
+    @media (min-width: 720px) { section { padding: 104px 0; } }
+    .lede { font-size: clamp(18px, 2vw, 21px); color: var(--body); max-width: 640px; margin-top: 16px; }
+
+    /* Top bar */
+    .top { position: sticky; top: 0; z-index: 10; background: rgba(20, 22, 29, 0.92); backdrop-filter: blur(8px); border-bottom: 1px solid rgba(255, 255, 255, 0.06); }
+    .top .wrap { display: flex; align-items: center; justify-content: space-between; height: 60px; }
+    .brand { display: flex; align-items: center; gap: 10px; color: #F3F1EC; text-decoration: none; font: 600 19px Fraunces, Georgia, serif; }
+    .brand img { width: 26px; height: 26px; }
+    .top nav { display: flex; gap: 20px; align-items: center; }
+    .top nav a { color: #C4C8D2; text-decoration: none; font-size: 15px; }
+    .top nav a:hover { color: #F3F1EC; }
+    .top nav .hide-sm { display: none; }
+    @media (min-width: 720px) { .top nav .hide-sm { display: inline; } }
+
+    /* Hero */
+    .hero { background: var(--ink); color: #F3F1EC; padding: 64px 0 0; overflow: hidden; }
+    @media (min-width: 720px) { .hero { padding-top: 96px; } }
+    .hero .eyebrow { color: var(--want-bright); }
+    .hero h1 { font-size: clamp(56px, 10vw, 112px); line-height: 1; margin-top: 14px; }
+    .hero .lede { color: #C4C8D2; }
+    .hero .lede b { font-weight: 600; }
+    .w { color: var(--want-bright); } .l { color: var(--like-bright); }
+    .ctas { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 32px; }
+    .btn { display: inline-flex; align-items: center; gap: 10px; padding: 14px 22px; border-radius: 999px; font-weight: 600; font-size: 16px; text-decoration: none; transition: transform 0.12s ease, background 0.12s ease; }
+    .btn:hover { transform: translateY(-1px); }
+    .btn-main { background: var(--want-bright); color: #14161D; }
+    .btn-main:hover { background: #F58B5B; }
+    .btn-ghost { color: #F3F1EC; border: 1px solid rgba(255, 255, 255, 0.22); }
+    .btn-ghost:hover { background: rgba(255, 255, 255, 0.06); }
+    .btn svg { width: 18px; height: 18px; }
+    .fine { margin-top: 16px; font-size: 14px; color: #9AA0AE; }
+    .shot { margin-top: 56px; border-radius: 16px 16px 0 0; border: 1px solid rgba(255, 255, 255, 0.08); border-bottom: 0; box-shadow: 0 -10px 60px rgba(120, 168, 242, 0.08); }
+
+    /* The idea */
+    .duo { display: grid; gap: 20px; margin-top: 40px; }
+    @media (min-width: 720px) { .duo { grid-template-columns: 1fr 1fr; } }
+    .card { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 28px; }
+    .card.want { border-top: 6px solid var(--want); }
+    .card.like { border-top: 6px solid var(--like); }
+    .card .eyebrow { margin-bottom: 10px; }
+    .card.want .eyebrow { color: var(--want); } .card.like .eyebrow { color: var(--like); }
+    .card p { color: var(--body); margin-top: 8px; }
+    .source { margin-top: 20px; font-size: 14px; color: var(--muted); }
+
+    /* Features */
+    .alt { background: var(--surface); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+    .feature { display: grid; gap: 32px; align-items: center; }
+    .feature + .feature { margin-top: 72px; }
+    @media (min-width: 900px) { .feature { grid-template-columns: 1.35fr 1fr; gap: 56px; } .feature.flip > :first-child { order: 2; } }
+    .feature img { border-radius: 14px; border: 1px solid var(--line); background: #0F0F0F; }
+    .feature h3 { font-size: clamp(24px, 3vw, 30px); }
+    .feature p { color: var(--body); margin-top: 12px; }
+    .levels { list-style: none; padding: 0; margin: 20px 0 0; display: grid; gap: 12px; }
+    .levels li { display: flex; gap: 12px; align-items: baseline; color: var(--body); }
+    .tag { flex: none; font-size: 13px; font-weight: 700; padding: 3px 10px; border-radius: 999px; }
+    .tag.risky { color: var(--want); box-shadow: inset 0 0 0 1.5px var(--want); }
+    .tag.junk { color: #fff; background: #C4501D; }
+    .tag.good { color: #fff; background: #187A55; }
+    .report-crop { max-height: 560px; overflow: hidden; border-radius: 14px; border: 1px solid var(--line); position: relative; }
+    .report-crop img { border: 0; border-radius: 0; }
+    .report-crop::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 120px; background: linear-gradient(transparent, var(--surface)); }
+
+    /* Rules grid */
+    .grid4 { display: grid; gap: 16px; margin-top: 40px; }
+    @media (min-width: 720px) { .grid4 { grid-template-columns: 1fr 1fr; } }
+    .grid4 .card h3 { font-family: "DM Sans", Arial, sans-serif; font-weight: 700; font-size: 19px; }
+
+    /* Install */
+    .steps { counter-reset: s; list-style: none; padding: 0; margin: 32px 0 0; display: grid; gap: 14px; }
+    .steps li { counter-increment: s; display: flex; gap: 16px; align-items: baseline; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px 20px; color: var(--body); }
+    .steps li::before { content: counter(s); flex: none; width: 30px; height: 30px; border-radius: 50%; display: inline-grid; place-items: center; background: var(--ink); color: #F3F1EC; font: 600 15px "DM Sans", sans-serif; transform: translateY(-2px); }
+    .steps b { color: var(--text); }
+    code { font: 15px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: rgba(127, 127, 127, 0.14); padding: 1px 6px; border-radius: 6px; color: var(--text); }
+    .install-cta { margin-top: 28px; }
+    .install-cta .btn-main { color: #14161D; }
+
+    /* Privacy */
+    .privacy { background: var(--ink); color: #F3F1EC; }
+    .privacy .lede { color: #C4C8D2; }
+    .pills { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 28px; }
+    .pills span { padding: 10px 18px; border-radius: 999px; background: var(--ink-2); font-weight: 600; font-size: 15px; }
+
+    footer { padding: 40px 0 56px; color: var(--muted); font-size: 14px; }
+    footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 24px; justify-content: space-between; }
+  </style>
+</head>
+<body>
+  <header class="top">
+    <div class="wrap">
+      <a class="brand" href="#"><img src="icon128.png" alt="">Worth It?</a>
+      <nav>
+        <a class="hide-sm" href="#how">How it works</a>
+        <a class="hide-sm" href="#install">Install</a>
+        <a href="https://github.com/PrathamAgarwal1/Worth-it">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="wrap">
+        <p class="eyebrow">A free Chrome extension for YouTube</p>
+        <h1>Worth It?</h1>
+        <p class="lede">YouTube learns what you <b class="w">click</b>. Worth It? learns what you’re actually <b class="l">glad you watched</b>, then flags the junk food on your feed and points you to what’s worth your time.</p>
+        <div class="ctas">
+          <a class="btn btn-main" href="https://github.com/PrathamAgarwal1/Worth-it/releases/latest/download/worth-it.zip">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 20h14"/></svg>
+            Download for Chrome
+          </a>
+          <a class="btn btn-ghost" href="#install">How to install</a>
+        </div>
+        <p class="fine">Version 1.0.0 · free and open source · nothing leaves your computer</p>
+        <img class="shot" src="feed.jpg" alt="The YouTube home feed with Worth It? installed: a worth-it percentage on every thumbnail, and the brain menu in YouTube’s top bar listing the most worth-it videos on the page" width="1824" height="914">
+      </div>
+    </section>
+
+    <section id="idea">
+      <div class="wrap">
+        <p class="eyebrow" style="color: var(--want)">The idea</p>
+        <h2 style="margin-top: 12px">Wanting and liking run on separate brain systems</h2>
+        <p class="lede">That’s why you can keep clicking on things that don’t make you happy. A recommender trained on clicks only ever sees one side.</p>
+        <div class="duo">
+          <div class="card want">
+            <p class="eyebrow">Wanting</p>
+            <h3>The pull</h3>
+            <p>A dopamine-driven urge set off by a cue: a thumbnail, a title, a notification. It can keep growing with repetition even when the reward doesn’t.</p>
+          </div>
+          <div class="card like">
+            <p class="eyebrow">Liking</p>
+            <h3>The payoff</h3>
+            <p>How much you actually enjoy it, handled by different circuits. It can stay flat while the pull keeps climbing.</p>
+          </div>
+        </div>
+        <p class="source">Based on Kent Berridge &amp; Terry Robinson’s incentive-salience research.</p>
+      </div>
+    </section>
+
+    <section id="how" class="alt">
+      <div class="wrap">
+        <div class="feature">
+          <img src="watch.jpg" alt="A YouTube watch page with the slim Worth it? bar between the player and the title: five rating faces, Got what I needed, Finishing later, and the predicted worth-it percentage" width="1806" height="909" loading="lazy">
+          <div>
+            <p class="eyebrow" style="color: var(--like)">One question</p>
+            <h3 style="margin-top: 10px">Rate it in one tap, right under the video</h3>
+            <p>A slim bar between the player and the title asks “Worth it?” with five faces. No popups. Change your answer any time, and the bar lights up when the video ends.</p>
+            <p>It learns quietly too: finishing most of a video is a weak yes, leaving within seconds a small no, rewatching a strong yes.</p>
+          </div>
+        </div>
+
+        <div class="feature flip">
+          <div class="report-crop"><img src="report.png" alt="The Your Brain on YouTube report: week-by-week worth-it percentage, time spent on regretted videos, and how each hook pulls you versus pays off" width="1650" height="3075" loading="lazy"></div>
+          <div>
+            <p class="eyebrow" style="color: var(--want)">Your track record</p>
+            <h3 style="margin-top: 10px">Junk food, judged on your own ratings</h3>
+            <p>It spots eight attention hooks in titles and thumbnails, from curiosity gaps to outrage. But a verdict only comes from how <i>you</i> rated a channel or hook, once the evidence is confident:</p>
+            <ul class="levels">
+              <li><span class="tag risky">Risky</span> a thin orange outline: your ratings lean against it</li>
+              <li><span class="tag junk">Junk food</span> blurred, so the cue pulls less; hover to reveal</li>
+              <li><span class="tag good">Worth it</span> a green tick: a record of paying off for you</li>
+            </ul>
+            <p>The <b>“Your Brain on YouTube”</b> report shows your week-by-week trend, your triggers and every channel’s verdict. <span style="color: var(--muted)">Shown with demo data.</span></p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="fair">
+      <div class="wrap">
+        <p class="eyebrow" style="color: var(--like)">You stay in charge</p>
+        <h2 style="margin-top: 12px">Verdicts that are fair, and yours to overrule</h2>
+        <div class="grid4">
+          <div class="card"><h3>Your rating wins</h3><p>Rate a video Waste or Meh and it’s junk food. Good or Loved it, and it never is, whatever the channel.</p></div>
+          <div class="card"><h3>Overrule any channel</h3><p>Click a badge to see why it was flagged, then choose “isn’t junk for me” or “always flag”.</p></div>
+          <div class="card"><h3>Old ratings fade</h3><p>A rating counts half as much after 90 days, so a channel that changed gets re-judged on its own.</p></div>
+          <div class="card"><h3>Pick how strict</h3><p>Gentle, medium or strict, from the toolbar popup. It re-judges everything at once.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="install" class="alt">
+      <div class="wrap">
+        <p class="eyebrow" style="color: var(--want)">Install in two minutes</p>
+        <h2 style="margin-top: 12px">Get Worth It? for Chrome</h2>
+        <ol class="steps">
+          <li><span><b>Download</b> <a href="https://github.com/PrathamAgarwal1/Worth-it/releases/latest/download/worth-it.zip">worth-it.zip</a> and unzip it. You’ll get a folder called <code>worth-it</code>.</span></li>
+          <li><span>In Chrome, open <code>chrome://extensions</code>.</span></li>
+          <li><span>Turn on <b>Developer mode</b> (top right).</span></li>
+          <li><span>Click <b>Load unpacked</b> and choose the <code>worth-it</code> folder.</span></li>
+          <li><span>Pin the extension’s icon, then open YouTube and browse as usual.</span></li>
+        </ol>
+        <p class="lede" style="font-size: 17px">Works in Chrome and other Chromium browsers on desktop (Edge, Brave, Arc). Want to see the report before you have data? Open it from the toolbar icon and click <b>Load demo data</b>.</p>
+        <div class="install-cta">
+          <a class="btn btn-main" href="https://github.com/PrathamAgarwal1/Worth-it/releases/latest/download/worth-it.zip">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 20h14"/></svg>
+            Download worth-it.zip
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <section class="privacy">
+      <div class="wrap">
+        <p class="eyebrow" style="color: var(--like-bright)">Privacy</p>
+        <h2 style="margin-top: 12px">Everything stays in your browser</h2>
+        <p class="lede">Your ratings, models and history live in Chrome’s local storage on your computer. The only request the extension makes itself is fetching thumbnails from YouTube’s image server, to measure how loud they look.</p>
+        <div class="pills"><span>No accounts</span><span>No servers</span><span>No analytics</span><span>Export or delete any time</span></div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      <span>Worth It? · open source on <a href="https://github.com/PrathamAgarwal1/Worth-it">GitHub</a></span>
+      <span>Self-tracking, not a clinical tool.</span>
+    </div>
+  </footer>
+</body>
+</html>

@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Worth It? — wanting vs liking for YouTube",
   "short_name": "Worth It?",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Shows which psychological hooks a YouTube video uses, learns what you click vs. what you actually enjoy, and blurs the junk food.",
   "permissions": ["storage"],
   "host_permissions": ["https://www.youtube.com/*", "https://i.ytimg.com/*"],
