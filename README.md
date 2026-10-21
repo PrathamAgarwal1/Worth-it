@@ -2,6 +2,10 @@
 
 **A Chrome extension that shows how YouTube hooks your brain, and learns the difference between what you click and what you actually enjoy.**
 
+![Worth It? on the YouTube home feed: a worth-it % on every thumbnail, and the brain menu in the top bar listing the most worth-it videos on the page](docs/feed.jpg)
+
+*A fresh install: with no ratings yet, the worth-it % comes from research-based starting points, so most videos look alike. It becomes yours as you rate.*
+
 ## The idea
 
 Neuroscientists Kent Berridge and Terry Robinson showed that **wanting** (the dopamine-driven pull toward something) and **liking** (actually enjoying it) run on separate brain systems. That's why you can keep clicking on things that don't make you happy.
@@ -21,6 +25,8 @@ YouTube's recommender learns from what you *click*, which is wanting. Worth It? 
 | ⭐ | **Suggests worth-it picks** from the current page: click the brain icon in YouTube's top bar (next to the bell) | Ranks by `liking − λ · max(0, wanting − liking)` |
 | 🌙 | **Notices your vulnerable moments**: late night and deep in a session | Fatigue weakens self-control while the cue's pull stays strong |
 | 📊 | **"Your Brain on YouTube" report**: week-by-week worth-it % and regretted time, your personal triggers, worst hours, rabbit holes, moods, and every channel's verdict (which you can overrule) | |
+
+![The "Worth it?" bar under the video player: five faces, Got what I needed, Finishing later, and the predicted worth-it %](docs/watch.jpg)
 
 ![Your Brain on YouTube report (demo data)](docs/report.png)
 
