@@ -174,7 +174,8 @@ function barChart(el, items, { band = [], bandLabel = "", max = 1, fmt = (v) => 
 function renderCharts(stats) {
   barChart($("byHour"), stats.hours.map((c, hr) => ({ label: `${hr}:00`, short: String(hr), value: worth(c, 2), n: c.rated })),
            { band: [[0, 4], [23, 23]], bandLabel: "late night" });
-  const buckets = Object.keys(stats.depth);
+  // A fixed order: Chrome hands saved objects back with their keys sorted ("1", "10–19", "20+", "2–4"...).
+  const buckets = ["1", "2–4", "5–9", "10–19", "20+"].filter((k) => stats.depth[k]);
   barChart($("byDepth"), buckets.map((k) => ({ label: `video ${k} of session`, short: k, value: worth(stats.depth[k], 2), n: stats.depth[k].rated })));
   const moods = ["calm", "good", "tired", "stressed"];
   barChart($("byMood"), moods.map((m) => ({ label: m, value: worth(stats.moods[m], 2), n: stats.moods[m] ? stats.moods[m].rated : 0 })));

@@ -244,3 +244,17 @@ test("old ratings fade: three bad ratings a year ago no longer make a channel ju
   assert.equal(data.model.record.channels.chan.level, "none");
   assert.equal(data.model.record.channels.chan.n, 3, "still counted for the explanation");
 });
+
+test("the old strictness slider carries over, and changing strictness re-judges channels", async () => {
+  data = { settings: { lambda: 2, askMode: "bar", barIntro: true } };
+  S.__resetForTest();
+  await S.init();
+  assert.equal(data.settings.strictness, "strict");
+  assert.equal(data.settings.lambda, undefined);
+  assert.equal(data.model.record.strictness, "strict");
+  await view("s1", 300);
+  await S.rate({ id: "s1", rating: 1 });
+  assert.equal(data.model.record.channels.chan.level, "risky", "strict: one bad rating");
+  await S.strictness("gentle");
+  assert.equal(data.model.record.channels.chan.level, "none");
+});

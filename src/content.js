@@ -15,7 +15,7 @@
   const MIN_WATCH_SEC = 15;
 
   let dead = false;   // set once the extension is reloaded and this copy of the script is orphaned
-  let settings = { blur: true, badges: true, askRating: true, askMode: "bar", lambda: 1 };
+  let settings = { blur: true, badges: true, askRating: true, askMode: "bar", strictness: "medium" };
   let model = W.freshModel();
   let ctx = { depth: 0, lateNight: W.isLateNight(new Date()) };
   const thumbArousal = new Map();          // videoId -> arousal (or null while loading)
@@ -78,7 +78,7 @@
   function evaluate(id, title, channel, durationSec) {
     const arousal = thumbArousal.get(id);
     const hooks = W.detectHooks(title, arousal == null ? undefined : arousal);
-    const s = W.score(model, hooks, ctx, settings.lambda, channel, { id, durationSec });
+    const s = W.score(model, hooks, ctx, 1, channel, { id, durationSec });
     const v = { id, title, channel, durationSec, hooks, s };
     info.set(id, v);
     return v;
@@ -559,7 +559,7 @@
         }
         mine.hooks = W.detectHooks(mine.title, thumbArousal.get(id) ?? undefined);
         if (barState && barState.id === id) {
-          barState.pred = W.score(model, mine.hooks, ctx, settings.lambda, mine.channel).worthIt;
+          barState.pred = W.score(model, mine.hooks, ctx, 1, mine.channel).worthIt;
           renderBar();
         }
       }

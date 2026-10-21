@@ -36,16 +36,23 @@
 
   // Track record. Each group (a channel, or a hook) starts from Beta(2, 2): "no idea, about half".
   const TRACK_PRIOR = 2;
-  // How sure it must be that under half of a group's videos are worth it to you, to enter a level,
-  // and how far that can fall before it leaves it again (so one rating doesn't flip it back and forth).
-  // With these, 2 bad ratings of a channel make it risky, 3 of 3 or 4 of 5 make it junk food.
-  const LEVELS = {
-    junk: { enter: 0.85, exit: 0.75 },
-    risky: { enter: 0.7, exit: 0.6 },
-    good: { enter: 0.85, exit: 0.75 },   // sure that *over* half are worth it
+  // How strict to be ("How strict about junk food" in the toolbar popup). For each level: how sure it
+  // must be that under half of a group's videos are worth it to you to enter it, and how far that can
+  // fall before it leaves again (so one rating doesn't flip it back and forth). Then how many likely
+  // regretted minutes turn a risky video into junk food, and under how many junk food is only risky.
+  //   gentle: 3 bad ratings of a channel make it risky, 4 (or 5 of 6) junk food
+  //   medium: 2 bad ratings make it risky, 3 of 3 or 4 of 5 junk food
+  //   strict: 1 bad rating makes it risky, 2 junk food
+  const GOOD_LEVEL = { enter: 0.85, exit: 0.75 };   // sure that *over* half are worth it: the same for all
+  const STRICTNESS = {
+    gentle: { junk: { enter: 0.92, exit: 0.86 }, risky: { enter: 0.88, exit: 0.8 }, longMin: 60, shortMin: 5 },
+    medium: { junk: { enter: 0.85, exit: 0.75 }, risky: { enter: 0.7, exit: 0.6 }, longMin: 30, shortMin: 2 },
+    strict: { junk: { enter: 0.8, exit: 0.7 }, risky: { enter: 0.65, exit: 0.55 }, longMin: 15, shortMin: 1 },
   };
-  const LONG_REGRET_MIN = 30;   // a risky video you'd likely regret this many minutes of counts as junk food
-  const SHORT_REGRET_MIN = 2;   // junk food this short is only risky (unless you rated it yourself)
+  const strictnessOf = (model) => STRICTNESS[(model.record && model.record.strictness) || "medium"] || STRICTNESS.medium;
+  const LEVELS = { ...STRICTNESS.medium, good: GOOD_LEVEL };   // the default, for reference
+  const LONG_REGRET_MIN = STRICTNESS.medium.longMin;
+  const SHORT_REGRET_MIN = STRICTNESS.medium.shortMin;
   const MAX_RATED_VIDEOS = 3000;
   const HALF_LIFE_DAYS = 90;    // a rating this old counts half as much as one from today
 
@@ -203,13 +210,24 @@
   const badChance = (g) => betaCdf(0.5, TRACK_PRIOR + g.good, TRACK_PRIOR + g.bad);
 
   /** The group's level, given the one it had: entering a level takes more evidence than staying in it. */
-  function nextLevel(prev, g) {
+  function nextLevel(prev, g, strictness = "medium") {
+    const L = STRICTNESS[strictness] || STRICTNESS.medium;
     const p = badChance(g);
     const has = (lvl) => prev === lvl || (lvl === "risky" && prev === "junk");
-    if (p >= (prev === "junk" ? LEVELS.junk.exit : LEVELS.junk.enter)) return "junk";
-    if (p >= (has("risky") ? LEVELS.risky.exit : LEVELS.risky.enter)) return "risky";
-    if (1 - p >= (prev === "good" ? LEVELS.good.exit : LEVELS.good.enter)) return "good";
+    if (p >= (prev === "junk" ? L.junk.exit : L.junk.enter)) return "junk";
+    if (p >= (has("risky") ? L.risky.exit : L.risky.enter)) return "risky";
+    if (1 - p >= (prev === "good" ? GOOD_LEVEL.exit : GOOD_LEVEL.enter)) return "good";
     return "none";
+  }
+
+  /** A new strictness: re-judge every group from scratch under it. */
+  function setStrictness(model, strictness) {
+    if (!STRICTNESS[strictness]) return false;
+    const r = (model.record = model.record || freshRecord());
+    if ((r.strictness || "medium") === strictness) return false;
+    r.strictness = strictness;
+    for (const g of [...Object.values(r.channels), ...Object.values(r.hooks)]) g.level = nextLevel("none", g, strictness);
+    return true;
   }
 
   function groupsOf(model, w, create) {
@@ -249,7 +267,7 @@
       age(g, at);
       add(g, before, -1, prevWeight);
       add(g, after, 1, 1);
-      g.level = nextLevel(g.level, g);
+      g.level = nextLevel(g.level, g, model.record.strictness);
     }
     const videos = model.record.videos;
     delete videos[w.id];
@@ -266,7 +284,7 @@
     if (!r) return;
     for (const g of [...Object.values(r.channels), ...Object.values(r.hooks)]) {
       age(g, now);
-      g.level = nextLevel(g.level, g);
+      g.level = nextLevel(g.level, g, r.strictness);
     }
   }
 
@@ -275,7 +293,9 @@
 
   /** Rebuild the track record from your rated watches (older saved data, demo data, merged entries). */
   function rebuildRecord(model, watches, now = Date.now()) {
+    const strictness = model.record && model.record.strictness;
     model.record = freshRecord();
+    if (strictness) model.record.strictness = strictness;
     const rated = watches.filter((w) => w.rating != null).sort((a, b) => ratedAt(a) - ratedAt(b));
     for (const w of rated) recordRating(model, w, null, w.rating, ratedAt(w));
     refreshRecord(model, now);
@@ -331,11 +351,12 @@
       }
     }
     // 5. Minutes matter: a long video you'd likely regret is junk food; a tiny one is only risky.
+    const L = strictnessOf(model);
     let long = false, short = false;
-    if (level === "risky" && regretMin != null && regretMin >= LONG_REGRET_MIN) {
+    if (level === "risky" && regretMin != null && regretMin >= L.longMin) {
       level = "junk";
       long = true;
-    } else if (level === "junk" && regretMin != null && regretMin < SHORT_REGRET_MIN) {
+    } else if (level === "junk" && regretMin != null && regretMin < L.shortMin) {
       level = "risky";
       short = true;
     }
@@ -344,7 +365,8 @@
 
   /**
    * Everything the UI needs to show about one video. video: {id, durationSec} for the verdict, when
-   * known (your own rating of it, and how many minutes it would cost you).
+   * known (your own rating of it, and how many minutes it would cost you). lambda: how hard the
+   * suggestions' ranking holds a pull-without-payoff against a video (1 by default).
    */
   function score(model, hooks, ctx, lambda, channel, video = {}) {
     const x = features(hooks, ctx);
@@ -371,7 +393,7 @@
   const api = { FEATURES, PRIOR, DEEP_SESSION, LEVELS, LONG_REGRET_MIN, SHORT_REGRET_MIN, sigmoid, isLateNight, features,
                 freshModel, lift, update, ratingTarget, implicitTarget, implicitDecision, score, channelKey,
                 betaCdf, badChance, nextLevel, recordRating, rebuildRecord, refreshRecord, verdict, setOverride, overrideOf,
-                fade, HALF_LIFE_DAYS,
+                fade, HALF_LIFE_DAYS, STRICTNESS, setStrictness, strictnessOf,
                 RESUME_DAYS, EARLY_EXIT_GRACE_DAYS, DAY_MS };
   root.WorthIt = Object.assign(root.WorthIt || {}, api);
   if (typeof module !== "undefined" && module.exports) module.exports = { ...H, ...api };

@@ -1,13 +1,23 @@
 // Toolbar popup: settings + today at a glance.
 const $ = (id) => document.getElementById(id);
-const STRICTNESS = ["off", "gentle", "gentle", "medium", "medium", "strict", "strict", "very strict", "very strict"];
+const STRICTNESS = ["gentle", "medium", "strict"];
+const STRICT_WHAT = {
+  gentle: "Flags a channel after 3 bad ratings (risky), 4 for junk food. Long videos count from an hour of likely regret.",
+  medium: "Flags a channel after 2 bad ratings (risky), 3 for junk food. Long videos count from 30 min of likely regret.",
+  strict: "Flags a channel after 1 bad rating (risky), 2 for junk food. Long videos count from 15 min of likely regret.",
+};
+function showStrictness(name) {
+  $("strictVal").textContent = name;
+  $("strictWhat").textContent = STRICT_WHAT[name];
+}
 
 async function load() {
   const { settings = {}, watches = [], demo } = await chrome.storage.local.get(["settings", "watches", "demo"]);
   for (const k of ["blur", "badges"]) $(k).checked = settings[k] !== false;
   $("askMode").value = settings.askRating === false ? "never" : settings.askMode || "bar";
-  $("lambda").value = settings.lambda ?? 1;
-  $("lambdaVal").textContent = STRICTNESS[Math.round(($("lambda").value) * 4)];
+  const strict = STRICTNESS.includes(settings.strictness) ? settings.strictness : "medium";
+  $("strictness").value = STRICTNESS.indexOf(strict);
+  showStrictness(strict);
 
   const midnight = new Date().setHours(0, 0, 0, 0);
   const today = demo ? watches.slice(-12) : watches.filter((w) => (w.lastTs || w.ts) >= midnight);
@@ -28,9 +38,7 @@ async function save(patch) {
 
 for (const k of ["blur", "badges"]) $(k).addEventListener("change", (e) => save({ [k]: e.target.checked }));
 $("askMode").addEventListener("change", (e) => save({ askMode: e.target.value, askRating: e.target.value !== "never" }));
-$("lambda").addEventListener("input", (e) => {
-  $("lambdaVal").textContent = STRICTNESS[Math.round(e.target.value * 4)];
-  save({ lambda: +e.target.value });
-});
+$("strictness").addEventListener("input", (e) => showStrictness(STRICTNESS[+e.target.value]));
+$("strictness").addEventListener("change", (e) => save({ strictness: STRICTNESS[+e.target.value] }));
 $("report").addEventListener("click", () => chrome.runtime.openOptionsPage());
 load();

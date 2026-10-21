@@ -13,7 +13,10 @@
   const DEPTH_BUCKETS = ["1", "2–4", "5–9", "10–19", "20+"];
 
   // askMode: "bar" (rate in a bar under the video, no popups), "often" / "sometimes" (bar plus a popup), "never".
-  const DEFAULT_SETTINGS = { blur: true, badges: true, askRating: true, askMode: "bar", lambda: 1, barIntro: true };
+  // strictness: how much of your evidence it takes to flag a channel or hook ("gentle" | "medium" | "strict").
+  const DEFAULT_SETTINGS = { blur: true, badges: true, askRating: true, askMode: "bar", strictness: "medium", barIntro: true };
+  // The old "How strict" slider (0–2) only re-ordered suggestions; carry its position over once.
+  const strictnessFromLambda = (l) => (l == null ? "medium" : l < 0.75 ? "gentle" : l > 1.25 ? "strict" : "medium");
 
   const cell = () => ({ shown: 0, clicked: 0, watched: 0, rated: 0, ratingSum: 0, worth: 0 });
   function freshStats() {
@@ -49,7 +52,9 @@
       if (s.settings && !s.settings.barIntro && s.settings.askMode !== "never" && s.settings.askRating !== false) {
         s.settings.askMode = "bar";
       }
+      if (s.settings && !s.settings.strictness) s.settings.strictness = strictnessFromLambda(s.settings.lambda);
       s.settings = { ...DEFAULT_SETTINGS, ...(s.settings || {}), barIntro: true };
+      delete s.settings.lambda;
       s.model = s.model || W.freshModel();
       s.stats = s.stats || freshStats();
       s.watches = s.watches || [];
@@ -58,6 +63,7 @@
       s.model.overrides = s.model.overrides || { channels: {} };
       if (mergeDuplicates(s) || !s.model.record) W.rebuildRecord(s.model, s.watches);
       else W.refreshRecord(s.model);   // old ratings have faded since last time
+      W.setStrictness(s.model, s.settings.strictness);
     });
     return ready;
   }
@@ -275,6 +281,17 @@
     return serial(["model"], (st) => W.setOverride(st.model, channel, value));
   }
 
+  /** "How strict about junk food" changed in the toolbar popup: re-judge every channel and hook. */
+  function strictness(value) {
+    return serial(["model"], (st) => W.setStrictness(st.model, value));
+  }
+  if (chrome.storage.onChanged) {
+    chrome.storage.onChanged.addListener((changes, area) => {
+      const v = area === "local" && changes.settings && changes.settings.newValue && changes.settings.newValue.strictness;
+      if (v && v !== (changes.settings.oldValue || {}).strictness) strictness(v);
+    });
+  }
+
   /** Not asked about (e.g. "Sometimes" mode): don't bring it up later. Learns from watch time as usual. */
   function skip({ id }) {
     return serial(["watches"], (st) => {
@@ -335,7 +352,7 @@
     });
   }
 
-  root.WorthItStore = { init, recordImpressions, watchStart, watchEnd, context, rate, dismiss, skip, later, pendingRating, bounce, override,
+  root.WorthItStore = { init, recordImpressions, watchStart, watchEnd, context, rate, dismiss, skip, later, pendingRating, bounce, override, strictness,
                         cacheThumb, reset, loadDemo, __resetForTest: () => (ready = null), DEPTH_BUCKETS, freshStats, cellsFor, depthBucket,
                         DEFAULT_SETTINGS };
 })(globalThis);

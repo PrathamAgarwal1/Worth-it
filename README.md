@@ -68,6 +68,7 @@ popup/             toolbar popup: switches, strictness slider, today's stats
   - **The channel decides first;** a hook's record (across every channel) only decides for channels without one, and never blurs a channel you've enjoyed before.
   - **Your own rating wins:** a video you rated 😩 or 😕 is always junk food, one you rated 🙂 or 🤩 never is.
   - **Minutes matter:** a risky video you'd likely regret 30+ minutes of counts as junk food; junk food under 2 minutes is only risky. Badges and the picks menu show the likely regretted minutes.
+  - **How strict** (toolbar popup) moves these thresholds: *gentle* waits for 3 bad ratings (risky) and 4 (junk food), and counts a long video as junk food from an hour of likely regret; *medium* is the default above; *strict* flags after 1 bad rating (risky) and 2 (junk food), and from 15 minutes. Changing it re-judges everything at once.
   - **Older ratings fade:** a rating counts half as much after 90 days, a quarter after 180, so a channel that changed gets re-judged, and a verdict nobody backs up any more expires on its own.
   - **Your call wins:** click any badge to see why, and choose "isn't junk for me" or "always flag" for its channel (or change it under *Channels* in the report). Only your rating of a specific video outranks it.
   - Hover any badge to see what it's based on, e.g. "4 of your 5 ratings of DramaDaily were OK or worse."

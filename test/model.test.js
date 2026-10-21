@@ -213,3 +213,37 @@ test("fading: a rating loses half its weight every 90 days, and old verdicts exp
   M.recordRating(m, { id: "old0", hooks: [], channel: "C" }, 1, 5, now + 165 * DAY);
   assert.ok(m.record.channels.c.bad > 0 && m.record.channels.c.bad < 1);
 });
+
+test("strictness: gentle waits for more bad ratings, strict flags sooner", () => {
+  const levels = (strictness, ratings) => {
+    const m = M.freshModel();
+    M.setStrictness(m, strictness);
+    return ratings.map((r) => (rateN(m, [], r, 1, "C"), m.record.channels.c.level));
+  };
+  assert.deepEqual(levels("gentle", [1, 1, 1, 1]), ["none", "none", "risky", "junk"]);
+  assert.deepEqual(levels("medium", [1, 1, 1]), ["none", "risky", "junk"]);
+  assert.deepEqual(levels("strict", [1, 1]), ["risky", "junk"]);
+  assert.equal(levels("gentle", [1, 1, 1, 1, 1, 4]).pop(), "junk", "5 of 6");
+});
+
+test("changing strictness re-judges what's already there", () => {
+  const m = M.freshModel();
+  rateN(m, [], 1, 2, "C");
+  assert.equal(m.record.channels.c.level, "risky");
+  assert.equal(M.setStrictness(m, "strict"), true);
+  assert.equal(m.record.channels.c.level, "junk");
+  M.setStrictness(m, "gentle");
+  assert.equal(m.record.channels.c.level, "none");
+  assert.equal(M.setStrictness(m, "gentle"), false, "no change, no work");
+});
+
+test("strictness also sets when a long video's likely regret makes it junk food", () => {
+  const m = M.freshModel();
+  rateN(m, [], 1, 2, "Risky");
+  M.setStrictness(m, "medium");
+  const at = (strictness, min) => (M.setStrictness(m, strictness), M.score(m, [], {}, 1, "Risky", { durationSec: min * 60 }));
+  const s20 = at("medium", 50), regret = s20.regretMin;
+  assert.ok(regret > 15 && regret < 30, `regret ${regret}`);
+  assert.equal(s20.level, "risky", "medium: under 30 min of likely regret stays risky");
+  assert.equal(at("strict", 50).level, "junk", "strict: 15 min is enough");
+});

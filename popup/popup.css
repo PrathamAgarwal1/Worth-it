@@ -28,3 +28,4 @@ input[type=checkbox] { accent-color: var(--like); width: 16px; height: 16px; }
 .privacy { text-align: center; color: var(--muted); font-size: 11px; margin: 8px 0 0; }
 .nowrap { white-space: nowrap; }
 select { min-width: 0; flex: 1; max-width: 190px; font: inherit; font-size: 12px; padding: 3px 6px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--text); }
+.slider .what { margin: 6px 0 0; color: var(--muted); font-size: 11px; line-height: 1.4; }
