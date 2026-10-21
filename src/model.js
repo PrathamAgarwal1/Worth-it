@@ -21,8 +21,10 @@
  * each channel and each hook, kept as counts of "worth it" vs "not worth it" ratings. A group is only
  * judged when the evidence is confident (a Beta posterior: e.g. at least 85% sure that under half of
  * that channel's videos are worth it to you), and a verdict only changes when the evidence clearly
- * moves (separate thresholds to enter and to leave a level). Your rating of a video always wins for
- * that video. Long videos you'd likely regret are judged more strictly than short ones.
+ * moves (separate thresholds to enter and to leave a level). Older ratings count less (they fade with
+ * a 90-day half-life), so a channel that changed gets re-judged. Your rating of a video always wins
+ * for that video, then your own call on a channel ("not junk" / "always flag"). Long videos you'd
+ * likely regret are judged more strictly than short ones.
  */
 (function (root) {
   "use strict";
@@ -45,6 +47,7 @@
   const LONG_REGRET_MIN = 30;   // a risky video you'd likely regret this many minutes of counts as junk food
   const SHORT_REGRET_MIN = 2;   // junk food this short is only risky (unless you rated it yourself)
   const MAX_RATED_VIDEOS = 3000;
+  const HALF_LIFE_DAYS = 90;    // a rating this old counts half as much as one from today
 
   const PRIOR = {
     want: { bias: -2.0, curiosity_gap: 0.5, outrage: 0.4, fear: 0.35, urgency: 0.3, social_proof: 0.2,
@@ -77,7 +80,8 @@
   }
 
   function freshModel() {
-    return { want: { ...PRIOR.want }, like: { ...PRIOR.like }, nWant: 0, nLike: 0, channels: {}, record: freshRecord() };
+    return { want: { ...PRIOR.want }, like: { ...PRIOR.like }, nWant: 0, nLike: 0, channels: {}, record: freshRecord(),
+             overrides: { channels: {} } };
   }
 
   /** Linear part without the bias: how much this video's cues shift you vs. your average. */
@@ -159,7 +163,21 @@
 
   // ---- Track record -----------------------------------------------------------------------
   const freshRecord = () => ({ channels: {}, hooks: {}, videos: {} });
-  const freshGroup = () => ({ good: 0, bad: 0, n: 0, pos: 0, neg: 0, level: "none" });
+  // good/bad: fading weights (as of time t); n/pos/neg: plain counts of your ratings, for explanations.
+  const freshGroup = () => ({ good: 0, bad: 0, n: 0, pos: 0, neg: 0, level: "none", t: null });
+
+  /** How much a rating made at `from` still counts at `to`. */
+  const fade = (from, to) => Math.pow(0.5, Math.max(0, to - from) / (HALF_LIFE_DAYS * DAY_MS));
+  /** Bring a group's weights forward to time `at`. */
+  function age(g, at) {
+    if (g.t != null && at > g.t) {
+      const f = fade(g.t, at);
+      g.good *= f;
+      g.bad *= f;
+    }
+    g.t = Math.max(g.t || 0, at);
+  }
+  const ratingOf = (v) => (v != null && typeof v === "object" ? v.r : v);
 
   // log Γ(z) (Lanczos), for the Beta distribution below.
   const LANCZOS = [0.99999999999980993, 676.5203681218851, -1259.1392167224028, 771.32342877765313, -176.61502916214059,
@@ -210,39 +228,71 @@
   }
 
   /**
-   * Your rating of video w changed from `before` to `after` (either may be null): update the track
-   * record of its channel and hooks, then their levels, once, so a change of mind can't flip-flop them.
+   * Your rating of video w changed from `before` to `after` (either may be null) at time `at`: update
+   * the track record of its channel and hooks, then their levels, once, so a change of mind can't
+   * flip-flop them. The earlier rating is taken back at the weight it has faded to.
    */
-  function recordRating(model, w, before, after) {
+  function recordRating(model, w, before, after, at = Date.now()) {
     const groups = groupsOf(model, w, after != null);
-    const add = (g, rating, sign) => {
+    const prev = model.record.videos[w.id];
+    const prevWeight = prev != null && typeof prev === "object" ? fade(prev.t, at) : 1;
+    const add = (g, rating, sign, weight) => {
       if (rating == null) return;
       const t = ratingTarget(rating);
-      g.good = Math.max(0, g.good + sign * t);
-      g.bad = Math.max(0, g.bad + sign * (1 - t));
+      g.good = Math.max(0, g.good + sign * weight * t);
+      g.bad = Math.max(0, g.bad + sign * weight * (1 - t));
       g.n = Math.max(0, g.n + sign);
       if (rating >= 4) g.pos = Math.max(0, g.pos + sign);
       else g.neg = Math.max(0, g.neg + sign);
     };
     for (const g of groups) {
-      add(g, before, -1);
-      add(g, after, 1);
+      age(g, at);
+      add(g, before, -1, prevWeight);
+      add(g, after, 1, 1);
       g.level = nextLevel(g.level, g);
     }
     const videos = model.record.videos;
     delete videos[w.id];
     if (after != null) {
-      videos[w.id] = after;   // re-added at the end: the oldest are forgotten first
+      videos[w.id] = { r: after, t: at };   // re-added at the end: the oldest are forgotten first
       const ids = Object.keys(videos);
       if (ids.length > MAX_RATED_VIDEOS) for (const id of ids.slice(0, ids.length - MAX_RATED_VIDEOS)) delete videos[id];
     }
   }
 
-  /** Rebuild the track record from your rated watches (older saved data, demo data, merged entries). */
-  function rebuildRecord(model, watches) {
-    model.record = freshRecord();
-    for (const w of watches) if (w.rating != null) recordRating(model, w, null, w.rating);
+  /** Let every group's evidence fade up to now, and re-judge it (old verdicts expire on their own). */
+  function refreshRecord(model, now = Date.now()) {
+    const r = model.record;
+    if (!r) return;
+    for (const g of [...Object.values(r.channels), ...Object.values(r.hooks)]) {
+      age(g, now);
+      g.level = nextLevel(g.level, g);
+    }
   }
+
+  /** When a watch was rated: the rating time if saved, else its last visit. */
+  const ratedAt = (w) => w.ratedTs || w.lastTs || w.ts || Date.now();
+
+  /** Rebuild the track record from your rated watches (older saved data, demo data, merged entries). */
+  function rebuildRecord(model, watches, now = Date.now()) {
+    model.record = freshRecord();
+    const rated = watches.filter((w) => w.rating != null).sort((a, b) => ratedAt(a) - ratedAt(b));
+    for (const w of rated) recordRating(model, w, null, w.rating, ratedAt(w));
+    refreshRecord(model, now);
+  }
+
+  /** Your own call on a channel: "never" (not junk for me), "always" (always flag), or null to let it decide. */
+  function setOverride(model, channel, value) {
+    const key = channelKey(channel);
+    if (!key) return;
+    model.overrides = model.overrides || { channels: {} };
+    if (value === "never" || value === "always") model.overrides.channels[key] = { value, name: channel.trim() };
+    else delete model.overrides.channels[key];
+  }
+  const overrideOf = (model, channel) => {
+    const o = model.overrides && model.overrides.channels[channelKey(channel)];
+    return o ? o.value : null;
+  };
 
   /**
    * The verdict on one video, and what it's based on:
@@ -252,17 +302,20 @@
   function verdict(model, { id, hooks = [], channel, durationSec, worthIt }) {
     const r = model.record || freshRecord();
     const regretMin = durationSec > 0 ? (durationSec / 60) * (1 - worthIt) : null;
-    const mine = id != null ? r.videos[id] : undefined;
+    const mine = id != null ? ratingOf(r.videos[id]) : undefined;
     // 1. Your own rating of this very video always wins.
     if (mine != null && mine !== 3) return { level: mine <= 2 ? "junk" : "good", basis: { kind: "you", rating: mine }, regretMin };
-    // 2. The channel's track record, if it has one.
+    // 2. Then your own call on the channel.
+    const ov = overrideOf(model, channel);
+    if (ov) return { level: ov === "always" ? "junk" : "none", basis: { kind: "override", value: ov }, regretMin };
+    // 3. The channel's track record, if it has one.
     const ch = r.channels[channelKey(channel)];
     let level = "none", basis = null, capped = false;
     if (ch && ch.level !== "none") {
       level = ch.level;
       basis = { kind: "channel", ...ch };
     } else {
-      // 3. Otherwise the worst hook's track record, across all the channels you've rated it on.
+      // 4. Otherwise the worst hook's track record, across all the channels you've rated it on.
       const order = { junk: 2, risky: 1 };
       for (const h of hooks) {
         const g = r.hooks[h];
@@ -277,7 +330,7 @@
         capped = true;
       }
     }
-    // 4. Minutes matter: a long video you'd likely regret is junk food; a tiny one is only risky.
+    // 5. Minutes matter: a long video you'd likely regret is junk food; a tiny one is only risky.
     let long = false, short = false;
     if (level === "risky" && regretMin != null && regretMin >= LONG_REGRET_MIN) {
       level = "junk";
@@ -317,7 +370,8 @@
 
   const api = { FEATURES, PRIOR, DEEP_SESSION, LEVELS, LONG_REGRET_MIN, SHORT_REGRET_MIN, sigmoid, isLateNight, features,
                 freshModel, lift, update, ratingTarget, implicitTarget, implicitDecision, score, channelKey,
-                betaCdf, badChance, nextLevel, recordRating, rebuildRecord, verdict,
+                betaCdf, badChance, nextLevel, recordRating, rebuildRecord, refreshRecord, verdict, setOverride, overrideOf,
+                fade, HALF_LIFE_DAYS,
                 RESUME_DAYS, EARLY_EXIT_GRACE_DAYS, DAY_MS };
   root.WorthIt = Object.assign(root.WorthIt || {}, api);
   if (typeof module !== "undefined" && module.exports) module.exports = { ...H, ...api };

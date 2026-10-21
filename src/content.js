@@ -95,6 +95,7 @@
     else if (s.risky) lines.push("⚠ Risky for you");
     else if (s.good) lines.push("✓ Worth it for you");
     if (b && b.kind === "you") lines.push(`You rated this video ${FACE_WORDS[b.rating]}.`);
+    else if (b && b.kind === "override") lines.push(b.value === "always" ? `You chose to always flag ${v.channel}.` : `You said ${v.channel} isn't junk for you.`);
     else if (b && b.kind === "channel" && (s.junk || s.risky)) lines.push(`${of(b, v.channel)}.`);
     else if (b && b.kind === "channel") lines.push(`${b.pos} of your ${b.n} ratings of ${v.channel} were Good or better, so its hooks aren't held against it.`);
     else if (b && b.kind === "hook") lines.push(`${of(b, `videos with ${W.BY_ID[b.hook].emoji} ${W.BY_ID[b.hook].label.toLowerCase()}`)}.`);
@@ -153,7 +154,7 @@
     }
     badge.className = cls;
     badge.innerHTML = `<span class="wi-b-icon">${esc(icon)}</span>${text ? `<span class="wi-b-text">${esc(text)}</span>` : ""}`;
-    badge.title = tooltip(v);
+    badge.title = `${tooltip(v)}\n\nClick the badge for options.`;
   }
 
   function processCard(card) {
@@ -230,6 +231,55 @@
     const card = a && a.closest("[data-wi-vid]");
     if (card) addImpression(card.dataset.wiVid, true);
   }
+  // ---- Clicking a badge: why, and your own call on the channel -----------------------------
+  // (Registered before the click tracker, so a click on a badge isn't counted as opening the video.)
+  let why = null;
+  function closeWhy() {
+    if (why) why.remove();
+    why = null;
+  }
+  document.addEventListener("click", (e) => {
+    const badge = e.target.closest && e.target.closest(".wi-badge");
+    if (!badge) {
+      if (why && !why.contains(e.target)) closeWhy();
+      return;
+    }
+    e.preventDefault();               // the badge sits on the thumbnail link: don't open the video
+    e.stopImmediatePropagation();
+    const card = badge.closest("[data-wi-vid]");
+    const v = card && info.get(card.dataset.wiVid);
+    if (v && !(why && why.dataset.vid === v.id)) openWhy(badge, v);
+    else closeWhy();
+  }, true);
+  document.addEventListener("keydown", (e) => e.key === "Escape" && closeWhy(), true);
+  window.addEventListener("scroll", closeWhy, { passive: true });
+
+  function openWhy(badge, v) {
+    closeWhy();
+    why = document.createElement("div");
+    why.className = "wi-why";
+    why.dataset.vid = v.id;
+    why.setAttribute("role", "dialog");
+    const ov = W.overrideOf(model, v.channel);
+    const lines = tooltip(v).split("\n").map((l) => (l ? `<div>${esc(l)}</div>` : `<div class="wi-why-gap"></div>`)).join("");
+    const ch = esc(v.channel);
+    const actions = !v.channel ? ""
+      : ov ? `<button data-ov="">↺ Let my ratings decide about ${ch}</button>`
+      : `<button data-ov="never">✓ ${ch} isn't junk for me</button><button data-ov="always">🍔 Always flag ${ch}</button>`;
+    why.innerHTML = `<div class="wi-why-text">${lines}</div>${actions ? `<div class="wi-why-actions">${actions}</div>` : ""}`;
+    why.addEventListener("click", async (e) => {
+      const b = e.target.closest("[data-ov]");
+      if (!b) return;
+      why.querySelector(".wi-why-actions").innerHTML = `<span class="wi-bar-ok">✓ Saved</span>`;
+      await send("override", { channel: v.channel, value: b.dataset.ov || null });
+      setTimeout(closeWhy, 700);
+    });
+    document.body.appendChild(why);
+    const r = badge.getBoundingClientRect(), w = why.offsetWidth, h = why.offsetHeight;
+    why.style.left = `${Math.max(8, Math.min(r.left, innerWidth - w - 8))}px`;
+    why.style.top = `${r.bottom + 6 + h > innerHeight - 8 ? Math.max(8, r.top - h - 6) : r.bottom + 6}px`;
+  }
+
   document.addEventListener("click", onClick, true);
   document.addEventListener("auxclick", onClick, true);
 
@@ -529,19 +579,28 @@
     if (!watch) return;
     const w = snapshot(true);
     // What the popup needs to know beyond what's saved: your earlier answer, and whether you answered in the bar.
-    const ask = { ...w, answered: watch.answered, prevRating: watch.prevRating, prevPartial: watch.prevPartial };
+    const ask = { ...w, answered: watch.answered, prevRating: watch.prevRating, prevPartial: watch.prevPartial, visitSec: watch.visitSec };
     watch = null;
     clearInterval(tick);
     clearInterval(checkpoint);
     clearInterval(metaTimer);
     schedulePanel();
     log("left video", w.id, `${w.watchedSec}s watched`, w.watchedSec < MIN_WATCH_SEC ? `(under ${MIN_WATCH_SEC}s: not asking)` : "");
+    // A bounce: it played, but you left a longer video within seconds, on a first visit you didn't rate.
+    const bounced = BOUNCE.minSec <= ask.visitSec && ask.visitSec < BOUNCE.maxSec && w.watchedSec - ask.visitSec < 1
+      && w.durationSec >= BOUNCE.minVideoSec && !ask.answered && ask.prevRating == null;
+    if (w.watchedSec >= MIN_WATCH_SEC) await send("watchEnd", { watch: w });
+    if (bounced) {
+      log("bounced", w.id);
+      send("bounce", { watch: w });
+    }
     if (w.watchedSec < MIN_WATCH_SEC) return;
-    await send("watchEnd", { watch: w });
     // The video you just left always wins over an older prompt still on screen.
     if (await mayAsk(ask, true)) showPrompt(ask);
     else send("skip", { id: w.id, ts: w.ts });   // not asking: don't bring it up later either
   }
+
+  const BOUNCE = { minSec: 2, maxSec: 30, minVideoSec: 120 };
 
   // How often to ask. Videos it doesn't ask about still teach it, from how much you watched.
   //   sometimes (default): after ≥ 1 minute of watching, at most once every 10 minutes
@@ -801,7 +860,7 @@
     domObserver.disconnect();
     observer.disconnect();
     watch = null;
-    for (const el of [prompt, btn, pop, bar]) if (el) el.remove();
+    for (const el of [prompt, btn, pop, bar, why]) if (el) el.remove();
     prompt = btn = pop = bar = null;
   }
 

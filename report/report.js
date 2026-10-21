@@ -39,29 +39,33 @@ function renderTiles(watches) {
 }
 
 // ---- Hooks table -------------------------------------------------------------------------
-function hookRows(stats) {
+// Verdicts come from the same track record as the badges on YouTube: your own ratings of videos with
+// each hook, older ones counting less. The bars show what pulls you (clicks) and what pays off.
+const LEVEL_TAG = { junk: ["junk", "junk food"], risky: ["risky", "risky"], good: ["ok", "pays off"], none: ["na", "no verdict yet"] };
+const LEVEL_ORDER = { junk: 0, risky: 1, none: 2, good: 3 };
+// The side of your ratings that explains the verdict: the good ones for "pays off", the rest otherwise.
+const ratingsLine = (g, level) => (!g || !g.n ? "no ratings yet"
+  : level === "good" ? `${g.pos} of your ${g.n} rating${g.n === 1 ? "" : "s"} Good or better`
+  : `${g.neg} of your ${g.n} rating${g.n === 1 ? "" : "s"} OK or worse`);
+
+function hookRows(stats, model) {
+  const rec = (model && model.record && model.record.hooks) || {};
   const base = { ctr: ctr(stats.none), worth: worth(stats.none) };
   const rows = W.HOOKS.map((h) => {
-    const c = stats.hooks[h.id];
-    const r = { hook: h, ctr: ctr(c), worth: worth(c), shown: c.shown, rated: c.rated };
-    if (r.ctr == null || r.worth == null || base.ctr == null || base.worth == null) r.verdict = "na";
-    else if (r.ctr >= base.ctr * 1.15 && r.worth <= base.worth - 0.1) r.verdict = "junk";
-    else if (r.worth >= base.worth - 0.05) r.verdict = "ok";
-    else r.verdict = "mixed";
-    r.gap = r.verdict === "na" ? -Infinity : (r.ctr / base.ctr - 1) + (base.worth - r.worth) * 2;
-    return r;
+    const c = stats.hooks[h.id], g = rec[h.id];
+    return { hook: h, ctr: ctr(c), worth: worth(c), shown: c.shown, rated: c.rated, g,
+             verdict: g ? g.level : "none", bad: g ? W.badChance(g) : 0.5 };
   });
-  rows.sort((a, b) => b.gap - a.gap);
+  rows.sort((a, b) => LEVEL_ORDER[a.verdict] - LEVEL_ORDER[b.verdict] || b.bad - a.bad);
   return { rows, base };
 }
 
-function renderHooks(stats) {
-  const { rows, base } = hookRows(stats);
+function renderHooks(stats, model) {
+  const { rows, base } = hookRows(stats, model);
   const maxCtr = Math.max(0.01, base.ctr || 0, ...rows.map((r) => r.ctr || 0)) * 1.1;
   const bar = (v, max, color, b) => `
     <div class="bar">${v == null ? "" : `<i style="width:${(100 * v) / max}%;background:var(${color})"></i>`}
       ${b == null ? "" : `<span class="base" style="left:${(100 * b) / max}%"></span>`}</div>`;
-  const tag = { junk: ["junk", "junk-food trigger"], ok: ["ok", "pays off"], mixed: ["na", "pulls, mixed payoff"], na: ["na", "not enough data"] };
   $("hooks").innerHTML = `<div class="table-wrap"><table class="hooks">
     <thead><tr><th>Hook</th><th>Click rate when shown <span class="want">(wanting)</span></th><th>Worth it when watched <span class="like">(liking)</span></th><th>Verdict</th></tr></thead>
     <tbody>${rows.map((r) => `
@@ -69,7 +73,7 @@ function renderHooks(stats) {
         <td><div class="hook-name">${r.hook.emoji} ${esc(r.hook.label)}</div><div class="hook-theory">${esc(r.hook.theory)}</div></td>
         <td class="barcell">${bar(r.ctr, maxCtr, "--want", base.ctr)}<div class="val">${r.ctr == null ? `${r.shown} seen so far` : `${pct(r.ctr)} · ${r.shown} seen`}</div></td>
         <td class="barcell">${bar(r.worth, 1, "--like", base.worth)}<div class="val">${r.worth == null ? `${r.rated} rated so far` : `${pct(r.worth)} · ${r.rated} rated`}</div></td>
-        <td><span class="tag ${tag[r.verdict][0]}">${tag[r.verdict][1]}</span></td>
+        <td><span class="tag ${LEVEL_TAG[r.verdict][0]}">${LEVEL_TAG[r.verdict][1]}</span><div class="val">${ratingsLine(r.g, r.verdict)}</div></td>
       </tr>`).join("")}
       <tr><td><div class="hook-name">— No hook</div><div class="hook-theory">Plain titles: your baseline</div></td>
         <td class="barcell">${bar(base.ctr, maxCtr, "--muted")}<div class="val">${pct(base.ctr)} · ${stats.none.shown} seen</div></td>
@@ -90,9 +94,9 @@ function renderInsights(watches, stats, hooks) {
   const out = [];
   const top = hooks.rows.find((r) => r.verdict === "junk");
   if (top) {
-    out.push(["warn", `${top.hook.emoji} <b>${esc(top.hook.label)}</b> is your biggest junk-food trigger: you click it
-      <b>${(top.ctr / hooks.base.ctr).toFixed(1)}×</b> as often as plain videos, but only <b>${pct(top.worth)}</b> were worth it
-      (plain videos: ${pct(hooks.base.worth)}). <i>${esc(top.hook.explain)}</i>`]);
+    const pull = top.ctr != null && hooks.base.ctr ? `you click it <b>${(top.ctr / hooks.base.ctr).toFixed(1)}×</b> as often as plain videos, but ` : "";
+    out.push(["warn", `${top.hook.emoji} <b>${esc(top.hook.label)}</b> is your biggest junk-food trigger: ${pull}<b>${top.g.neg} of your
+      ${top.g.n}</b> ratings of videos with it were OK or worse. <i>${esc(top.hook.explain)}</i>`]);
   }
   // Packaging isn't everything: channels that use hooks but that you rate highly anyway.
   const byChannel = {};
@@ -106,8 +110,8 @@ function renderInsights(watches, stats, hooks) {
     out.push(["", `✨ <b>${esc(exception.c)}</b> uses hooky titles and thumbnails, but you rate it ${exception.avg.toFixed(1)}/5.
       Its track record wins, so Worth It? doesn't hold the packaging against it.`]);
   }
-  const best = hooks.rows.filter((r) => r.verdict === "ok").sort((a, b) => b.worth - a.worth)[0];
-  if (best) out.push(["", `${best.hook.emoji} <b>${esc(best.hook.label)}</b> videos actually pay off for you: ${pct(best.worth)} worth it.`]);
+  const best = hooks.rows.filter((r) => r.verdict === "good").sort((a, b) => a.bad - b.bad)[0];
+  if (best) out.push(["", `${best.hook.emoji} <b>${esc(best.hook.label)}</b> videos actually pay off for you: ${best.g.pos} of your ${best.g.n} ratings were Good or better.`]);
 
   const [late, day] = split(watches, (w) => w.lateNight);
   if (late != null && day != null && day - late >= 0.1) {
@@ -135,31 +139,33 @@ function renderInsights(watches, stats, hooks) {
 }
 
 // ---- Bar charts (SVG; one measure, one axis) ---------------------------------------------
-function barChart(el, items, { band = [], bandLabel = "" } = {}) {
+function barChart(el, items, { band = [], bandLabel = "", max = 1, fmt = (v) => `${Math.round(v * 100)}%`, color = "var(--like)",
+                                  tip = (d) => `${d.label}: ${d.value == null ? "not enough ratings" : `${pct(d.value)} worth it`} (${d.n} rated)`,
+                                  empty = "Not enough ratings yet." } = {}) {
   if (!items.some((d) => d.value != null)) {
-    el.innerHTML = `<div class="chart"><div class="empty">Not enough ratings yet.</div></div>`;
+    el.innerHTML = `<div class="chart"><div class="empty">${empty}</div></div>`;
     return;
   }
   const w = 460, h = 190, l = 34, r = 8, t = 14, b = 26;
   const bw = (w - l - r) / items.length;
-  const y = (v) => t + (h - t - b) * (1 - v);
+  const y = (v) => t + (h - t - b) * (1 - v / max);
   let svg = `<svg viewBox="0 0 ${w} ${h}" role="img">`;
   band.forEach(([from, to], k) => {   // shaded index ranges, e.g. late-night hours
     svg += `<rect x="${l + from * bw}" y="${t}" width="${(to - from + 1) * bw}" height="${h - t - b}" fill="var(--want)" opacity="0.08"/>`;
     if (k === 0) svg += `<text x="${l + from * bw + 4}" y="${t + 10}">${bandLabel}</text>`;
   });
-  for (const v of [0, 0.5, 1]) {
-    svg += `<line class="gridline" x1="${l}" x2="${w - r}" y1="${y(v)}" y2="${y(v)}"/><text x="${l - 6}" y="${y(v) + 4}" text-anchor="end">${v * 100}%</text>`;
+  for (const v of [0, max / 2, max]) {
+    svg += `<line class="gridline" x1="${l}" x2="${w - r}" y1="${y(v)}" y2="${y(v)}"/><text x="${l - 6}" y="${y(v) + 4}" text-anchor="end">${fmt(v)}</text>`;
   }
-  const every = items.length > 12 ? 3 : 1;
+  const every = items.length > 12 ? 3 : items.length > 8 ? 2 : 1;
   items.forEach((d, i) => {
     const x = l + i * bw;
-    const tip = `${d.label}: ${d.value == null ? "not enough ratings" : `${pct(d.value)} worth it`} (${d.n} rated)`;
+    const tipText = tip(d);
     if (d.value != null) {
       const hh = Math.max(2, y(0) - y(d.value)), top = y(0) - hh;   // 2px stub so 0% reads as a value, not missing
-      svg += `<rect class="b" x="${x + bw * 0.18}" y="${top}" width="${bw * 0.64}" height="${hh}" rx="3" fill="var(--like)"><title>${esc(tip)}</title></rect>`;
+      svg += `<rect class="b" x="${x + bw * 0.18}" y="${top}" width="${bw * 0.64}" height="${hh}" rx="3" fill="${color}"><title>${esc(tipText)}</title></rect>`;
     }
-    svg += `<rect class="hit" x="${x}" y="${t}" width="${bw}" height="${h - t - b}"><title>${esc(tip)}</title></rect>`;
+    svg += `<rect class="hit" x="${x}" y="${t}" width="${bw}" height="${h - t - b}"><title>${esc(tipText)}</title></rect>`;
     if (i % every === 0) svg += `<text x="${x + bw / 2}" y="${h - 8}" text-anchor="middle">${esc(d.short ?? d.label)}</text>`;
   });
   el.innerHTML = `<div class="chart">${svg}</svg></div>`;
@@ -174,25 +180,75 @@ function renderCharts(stats) {
   barChart($("byMood"), moods.map((m) => ({ label: m, value: worth(stats.moods[m], 2), n: stats.moods[m] ? stats.moods[m].rated : 0 })));
 }
 
+// ---- Week by week ---------------------------------------------------------------------------
+const ratedAt = (w) => w.ratedTs || w.lastTs || w.ts;
+function weekStart(ts) {
+  const d = new Date(ts);
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));   // Monday
+  return d;
+}
+/** A round top for a minutes axis: 10, 15, 30, 60, 90, 120, 180, ... */
+const niceMinutes = (m) => [10, 15, 30, 60, 90, 120, 180, 240, 360, 480, 720].find((x) => x >= m) || Math.ceil(m / 240) * 240;
+const minutesLabel = (m) => (m >= 60 ? `${Math.round((m / 60) * 10) / 10}h` : `${Math.round(m)}m`);
+
+function renderTrend(watches) {
+  const rated = watches.filter((w) => w.rating != null);
+  // From your first rating (at most 12 weeks back, at least 4 weeks shown) to this week.
+  const thisWeek = weekStart(Date.now());
+  const from = weekStart(Math.max(Math.min(...rated.map(ratedAt), Date.now()), thisWeek.getTime() - 11 * 7 * 86400000));
+  const back4 = new Date(thisWeek);
+  back4.setDate(back4.getDate() - 21);
+  const weeks = [];
+  for (const d = new Date(Math.min(from, back4)); d <= thisWeek; d.setDate(d.getDate() + 7)) {
+    weeks.push({ start: new Date(d), rated: 0, worth: 0, regretSec: 0 });
+  }
+  for (const w of rated) {
+    const k = weekStart(ratedAt(w)).getTime();
+    const wk = weeks.find((x) => x.start.getTime() === k);
+    if (!wk) continue;
+    wk.rated++;
+    if (w.rating >= 4) wk.worth++;
+    if (w.rating <= 2) wk.regretSec += w.watchedSec;
+  }
+  const label = (d) => d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  const items = weeks.map((wk) => ({ label: `Week of ${label(wk.start)}`, short: label(wk.start), n: wk.rated,
+                                     worth: wk.rated >= 2 ? wk.worth / wk.rated : null, regret: wk.regretSec / 60 }));
+  barChart($("trendWorth"), items.map((d) => ({ ...d, value: d.worth })));
+  const max = niceMinutes(Math.max(0, ...items.map((d) => d.regret)));
+  barChart($("trendRegret"), items.map((d) => ({ ...d, value: rated.length ? d.regret : null })), {
+    max, fmt: minutesLabel, color: "var(--want)", empty: "Rate a few videos to see this.",
+    tip: (d) => `${d.label}: ${minutesLabel(d.value)} on videos you rated 1–2 (${d.n} rated that week)`,
+  });
+}
+
 // ---- Channels and recent -----------------------------------------------------------------
-function renderChannels(watches) {
-  const by = {};
-  for (const w of watches) {
-    if (w.rating == null || !w.channel) continue;
-    (by[w.channel] = by[w.channel] || []).push(w.rating);
-  }
-  const rows = Object.entries(by).filter(([, r]) => r.length >= 2)
-    .map(([c, r]) => ({ c, avg: r.reduce((a, b) => a + b, 0) / r.length, n: r.length }));
-  if (!rows.length) {
-    $("channels").innerHTML = `<div class="list"><div class="empty">Rate two videos from the same channel to see it here.</div></div>`;
-    return;
-  }
-  const list = (xs) => xs.map((x) => `<div class="item"><div class="grow title">${esc(x.c)}</div><div class="meta">${x.n} rated</div><div class="stars">${x.avg.toFixed(1)} / 5</div></div>`).join("");
-  const best = [...rows].sort((a, b) => b.avg - a.avg).slice(0, 4);
-  const worst = [...rows].sort((a, b) => a.avg - b.avg).filter((x) => !best.includes(x)).slice(0, 4);
-  $("channels").innerHTML = `
-    <div class="chan"><h3>Worth your time</h3><div class="list">${list(best)}</div></div>
-    ${worst.length ? `<div class="chan"><h3>Pulls you in, rarely pays off</h3><div class="list">${list(worst)}</div></div>` : ""}`;
+function renderChannels(model) {
+  const rec = (model && model.record && model.record.channels) || {};
+  const ovs = (model && model.overrides && model.overrides.channels) || {};
+  const rows = [...new Set([...Object.keys(rec), ...Object.keys(ovs)])].map((k) => {
+    const g = rec[k], o = ovs[k];
+    return { name: (g && g.name) || (o && o.name) || k, g, ov: o ? o.value : "",
+             level: o ? (o.value === "always" ? "junk" : "none") : g ? g.level : "none", bad: g ? W.badChance(g) : 0.5 };
+  });
+  const judged = rows.filter((r) => r.level !== "none" || r.ov)
+    .sort((a, b) => LEVEL_ORDER[a.level] - LEVEL_ORDER[b.level] || b.bad - a.bad);
+  const rest = rows.filter((r) => !(r.level !== "none" || r.ov)).sort((a, b) => (b.g ? b.g.n : 0) - (a.g ? a.g.n : 0));
+  const item = (r) => `
+    <div class="item">
+      <div class="grow"><div class="title">${esc(r.name)}</div>
+        <div class="meta">${r.ov ? (r.ov === "always" ? "Your call: always flag" : "Your call: not junk") + " · " : ""}${ratingsLine(r.g, r.level)}</div></div>
+      <span class="tag ${LEVEL_TAG[r.level][0]}">${r.ov === "never" ? "not junk" : LEVEL_TAG[r.level][1]}</span>
+      <select data-ch="${esc(r.name)}" aria-label="Your call on ${esc(r.name)}">
+        <option value=""${r.ov ? "" : " selected"}>From my ratings</option>
+        <option value="never"${r.ov === "never" ? " selected" : ""}>Not junk for me</option>
+        <option value="always"${r.ov === "always" ? " selected" : ""}>Always flag</option>
+      </select>
+    </div>`;
+  $("channels").innerHTML = rows.length
+    ? `${judged.length ? `<div class="list">${judged.map(item).join("")}</div>` : `<div class="list"><div class="empty">No channel has a verdict yet: rate two or three videos from one.</div></div>`}
+       ${rest.length ? `<details class="more"><summary>${rest.length} more channel${rest.length === 1 ? "" : "s"}, not judged yet</summary><div class="list">${rest.map(item).join("")}</div></details>` : ""}`
+    : `<div class="list"><div class="empty">Rate a few videos to see your channels here.</div></div>`;
 }
 
 function renderRecent(watches) {
@@ -215,18 +271,23 @@ function renderRecent(watches) {
 
 // ---- Wiring ------------------------------------------------------------------------------
 async function render() {
-  const { stats, watches = [], demo } = await chrome.storage.local.get(["stats", "watches", "demo"]);
+  const { stats, watches = [], demo, model } = await chrome.storage.local.get(["stats", "watches", "demo", "model"]);
   $("demoBanner").hidden = !demo;
   renderTiles(watches);
   if (!stats) return;
-  const hooks = renderHooks(stats);
+  const hooks = renderHooks(stats, model);
   renderInsights(watches, stats, hooks);
   renderCharts(stats);
-  renderChannels(watches);
+  renderChannels(model);
+  renderTrend(watches);
   renderRecent(watches);
 }
 
-const send = (type) => new Promise((res) => chrome.runtime.sendMessage({ type }, res));
+const send = (type, payload = {}) => new Promise((res) => chrome.runtime.sendMessage({ type, ...payload }, res));
+document.addEventListener("change", (e) => {
+  const sel = e.target.closest("select[data-ch]");
+  if (sel) send("override", { channel: sel.dataset.ch, value: sel.value || null });
+});
 document.addEventListener("click", async (e) => {
   const a = e.target.closest("[data-action]");
   if (!a) return;

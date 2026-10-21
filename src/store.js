@@ -55,7 +55,9 @@
       s.watches = s.watches || [];
       s.session = s.session || { lastTs: 0, depth: 0 };
       s.thumbs = s.thumbs || {};
+      s.model.overrides = s.model.overrides || { channels: {} };
       if (mergeDuplicates(s) || !s.model.record) W.rebuildRecord(s.model, s.watches);
+      else W.refreshRecord(s.model);   // old ratings have faded since last time
     });
     return ready;
   }
@@ -147,6 +149,7 @@
     return serial(["session", "watches", "model"], (st) => {
       const now = Date.now();
       for (const w of st.watches) if (now - (w.lastTs || w.ts) > SESSION_GAP_MS) settleImplicit(st.model, w, now);
+      W.refreshRecord(st.model, now);
       const s = st.session;
       s.depth = now - s.lastTs > SESSION_GAP_MS ? 1 : s.depth + 1;
       s.lastTs = now;
@@ -154,8 +157,10 @@
       const i = id ? findEntry(st.watches, id) : -1;
       if (i >= 0) {
         const [w] = st.watches.splice(i, 1);   // move to the end: most recent
+        // Coming back to a video you'd already finished is a rewatch: a strong sign you liked it.
+        const finished = w.durationSec > 0 && w.watchedSec >= 0.7 * w.durationSec;
         Object.assign(w, { lastTs: now, visits: (w.visits || 1) + 1, later: false, dismissed: false, skipped: false,
-                           endTs: null });
+                           endTs: null, rewatch: finished ? { fromSec: w.watchedSec, counted: false } : null });
         st.watches.push(w);
         resume = { ts: w.ts, watchedSec: w.watchedSec, rating: w.rating, partial: !!w.partial, mood: w.mood || null };
       }
@@ -175,8 +180,10 @@
    */
   function watchEnd(w) {
     if (!w || w.watchedSec < MIN_WATCH_SEC) return Promise.resolve(false);
-    return serial(["watches", "stats"], (st) => saveWatch(st, w));
+    return serial(["watches", "stats", "model"], (st) => saveWatch(st, w));
   }
+
+  const REWATCH_SEC = 60;   // watching a finished video again for this long counts as a rewatch
 
   /** Add or update this video's entry (needs st.watches and st.stats). */
   function saveWatch(st, w) {
@@ -195,6 +202,13 @@
     } else {
       st.watches.push(rec);
       for (const c of cellsFor(st.stats, w.hooks, rec.hour, w.depth)) c.watched++;
+    }
+    const e = st.watches[findEntry(st.watches, w.id)];
+    if (st.model && e.rewatch && !e.rewatch.counted && e.watchedSec - e.rewatch.fromSec >= REWATCH_SEC) {
+      e.rewatch.counted = true;
+      e.rewatches = (e.rewatches || 0) + 1;
+      W.update(st.model, "like", W.features(e.hooks, { lateNight: e.lateNight, depth: e.depth }), 0.9,
+               { channel: e.channel, weight: 0.7 });
     }
     if (st.watches.length > MAX_WATCHES) st.watches.splice(0, st.watches.length - MAX_WATCHES);
     return true;
@@ -218,8 +232,9 @@
       w.mood = mood || null;
       w.partial = !!partial;   // "got what I needed": worth it without finishing
       w.later = false;
+      w.ratedTs = Date.now();
       tallyRating(st.stats, w, 1);
-      W.recordRating(st.model, w, before, rating);   // the track record behind junk-food verdicts
+      W.recordRating(st.model, w, before, rating, w.ratedTs);   // the track record behind junk-food verdicts
       if (before == null || W.ratingTarget(before) !== W.ratingTarget(rating)) {
         W.update(st.model, "like", W.features(w.hooks, { lateNight: w.lateNight, depth: w.depth }), W.ratingTarget(rating),
                  { channel: w.channel });
@@ -237,6 +252,27 @@
         settleImplicit(st.model, w, Date.now());
       }
     });
+  }
+
+  /**
+   * A bounce: you opened a video and left within seconds. A small "not worth it" for the liking model
+   * only (never the track record, which is only your ratings), unless you've rated it.
+   */
+  function bounce({ watch: v }) {
+    if (!v) return Promise.resolve(false);
+    return serial(["watches", "model"], (st) => {
+      const e = entry(st.watches, v.id);
+      if (e && (e.rating != null || e.learned)) return false;
+      W.update(st.model, "like", W.features(v.hooks || [], { lateNight: W.isLateNight(new Date(v.ts)), depth: v.depth || 0 }), 0.2,
+               { channel: v.channel, weight: 0.3 });
+      if (e) e.learned = true;   // already learned from: no early-exit lesson on top later
+      return true;
+    });
+  }
+
+  /** Your own call on a channel: "never" (not junk for me), "always" (always flag), or null (let it decide). */
+  function override({ channel, value }) {
+    return serial(["model"], (st) => W.setOverride(st.model, channel, value));
   }
 
   /** Not asked about (e.g. "Sometimes" mode): don't bring it up later. Learns from watch time as usual. */
@@ -299,7 +335,7 @@
     });
   }
 
-  root.WorthItStore = { init, recordImpressions, watchStart, watchEnd, context, rate, dismiss, skip, later, pendingRating,
+  root.WorthItStore = { init, recordImpressions, watchStart, watchEnd, context, rate, dismiss, skip, later, pendingRating, bounce, override,
                         cacheThumb, reset, loadDemo, __resetForTest: () => (ready = null), DEPTH_BUCKETS, freshStats, cellsFor, depthBucket,
                         DEFAULT_SETTINGS };
 })(globalThis);

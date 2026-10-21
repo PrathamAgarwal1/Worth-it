@@ -56,6 +56,8 @@ const handlers = {
   reset: () => S.reset(),
   loadDemo: () => S.loadDemo(),
   openReport: () => chrome.runtime.openOptionsPage(),
+  bounce: (m) => S.bounce(m),
+  override: (m) => S.override(m),
 };
 
 chrome.runtime.onMessage.addListener((msg, _sender, reply) => {

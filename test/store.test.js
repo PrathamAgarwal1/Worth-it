@@ -128,7 +128,7 @@ test("rating again with the same answer doesn't teach the model twice", async ()
   await S.init();
   await view("v8", 800);
   await S.rate({ id: "v8", rating: 4 });
-  await view("v8", 100);
+  await view("v8", 30);                                       // too short to be a rewatch
   await S.rate({ id: "v8", rating: 4 });
   assert.equal(data.model.nLike, 1);
 });
@@ -177,9 +177,70 @@ test("ratings feed the track record; re-rating replaces, and old saved data is r
   assert.equal(data.model.record.channels.chan.level, "junk");
   await S.rate({ id: "c", rating: 5 });                       // changed my mind about one
   assert.deepEqual([data.model.record.channels.chan.n, data.model.record.channels.chan.pos], [3, 1]);
-  assert.equal(data.model.record.videos.c, 5);
+  assert.equal(data.model.record.videos.c.r, 5);
   delete data.model.record;                                   // saved by an older version
   S.__resetForTest();
   await S.init();
   assert.deepEqual([data.model.record.channels.chan.n, data.model.record.channels.chan.neg], [3, 2]);
+});
+
+test("rewatching a finished video teaches 'liked it'; a quick look at an unfinished one doesn't", async () => {
+  await S.reset();
+  await S.init();
+  await view("r1", 800);                                      // finished (of 900 s)
+  const n = data.model.nLike;
+  await view("r1", 120);                                      // watched again for 2 min
+  assert.equal(data.model.nLike, n + 1);
+  assert.equal(find("r1")[0].rewatches, 1);
+  await view("r1", 30);                                       // and again, briefly: not a rewatch
+  assert.equal(data.model.nLike, n + 1);
+  await view("r2", 100);                                      // unfinished...
+  await view("r2", 120);                                      // ...continued: not a rewatch
+  assert.equal(data.model.nLike, n + 1);
+});
+
+test("a bounce is a small negative for the liking model only, and never for a rated video", async () => {
+  await S.reset();
+  await S.init();
+  const v = { id: "b1", title: "b1", channel: "Bouncy", hooks: [], ts: Date.now(), depth: 1, watchedSec: 8, durationSec: 600 };
+  assert.equal(await S.bounce({ watch: v }), true);
+  assert.ok(data.model.channels.bouncy.like < 0);
+  assert.equal(data.model.record.channels.bouncy, undefined, "not in the track record");
+  await view("b2", 300);
+  await S.rate({ id: "b2", rating: 5 });
+  assert.equal(await S.bounce({ watch: { ...v, id: "b2" } }), false);
+});
+
+test("your call on a channel beats its track record, and can be undone", async () => {
+  await S.reset();
+  await S.init();
+  for (const id of ["o1", "o2", "o3"]) {
+    await view(id, 300);
+    await S.rate({ id, rating: 1 });
+  }
+  const level = () => W.score(data.model, [], {}, 1, "Chan").level;
+  assert.equal(level(), "junk");
+  await S.override({ channel: "Chan", value: "never" });
+  assert.equal(level(), "none");
+  assert.equal(W.score(data.model, [], {}, 1, "Chan").basis.kind, "override");
+  await S.override({ channel: "chan", value: null });
+  assert.equal(level(), "junk");
+  await S.override({ channel: "Other", value: "always" });
+  assert.equal(W.score(data.model, [], {}, 1, "Other").level, "junk");
+});
+
+test("old ratings fade: three bad ratings a year ago no longer make a channel junk food", async () => {
+  await S.reset();
+  await S.init();
+  for (const id of ["f1", "f2", "f3"]) {
+    await view(id, 300);
+    await S.rate({ id, rating: 1 });
+  }
+  assert.equal(data.model.record.channels.chan.level, "junk");
+  for (const w of data.watches) w.ratedTs -= 365 * DAY;     // as if rated a year ago
+  delete data.model.record;
+  S.__resetForTest();
+  await S.init();
+  assert.equal(data.model.record.channels.chan.level, "none");
+  assert.equal(data.model.record.channels.chan.n, 3, "still counted for the explanation");
 });

@@ -57,6 +57,7 @@ section { margin-top: 36px; }
 .tag.junk { background: rgba(235, 104, 52, .15); color: var(--want); }
 .tag.ok { background: rgba(27, 175, 122, .14); color: var(--good); }
 .tag.na { background: var(--soft); color: var(--muted); }
+.tag.risky { background: transparent; color: var(--want); box-shadow: inset 0 0 0 1px var(--want); }
 
 .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 28px; }
 .chart { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 12px; }
@@ -75,6 +76,10 @@ section { margin-top: 36px; }
 .list .meta { color: var(--muted); font-size: 12px; }
 .stars { font-variant-numeric: tabular-nums; white-space: nowrap; font-weight: 600; }
 .chan h3 { font-size: 13px; margin: 0 0 6px; color: var(--text2); }
+.list select { font: inherit; font-size: 12px; padding: 4px 6px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--text); max-width: 150px; }
+.more { margin-top: 10px; }
+.more summary { cursor: pointer; color: var(--text2); font-size: 13px; padding: 6px 2px; }
+.more .list { margin-top: 6px; }
 .chan + .chan { margin-top: 16px; }
 
 footer { margin-top: 48px; padding-top: 20px; border-top: 1px solid var(--line); color: var(--text2); font-size: 13px; }

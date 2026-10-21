@@ -91,7 +91,7 @@ test("changing your rating replaces it in the track record", () => {
   M.recordRating(m, w, null, 1);
   M.recordRating(m, w, 1, 5);
   const g = m.record.channels.c;
-  assert.deepEqual([g.n, g.pos, g.neg, m.record.videos.x], [1, 1, 0, 5]);
+  assert.deepEqual([g.n, g.pos, g.neg, m.record.videos.x.r], [1, 1, 0, 5]);
   assert.ok(Math.abs(g.good - 1) < 1e-9 && Math.abs(g.bad) < 1e-9);
 });
 
@@ -195,4 +195,21 @@ test("demo data: hooky-but-good channel is spared, hooky-and-bad one is flagged"
   const bad = M.score(model, hooks, { depth: 1 }, 1, "Shock Lab");
   assert.ok(bad.worthIt < good.worthIt - 0.15, `bad=${bad.worthIt} good=${good.worthIt}`);
   assert.ok(bad.gap > good.gap + 1);
+});
+
+test("fading: a rating loses half its weight every 90 days, and old verdicts expire on their own", () => {
+  const m = M.freshModel();
+  const now = Date.now(), DAY = M.DAY_MS;
+  for (let i = 0; i < 3; i++) M.recordRating(m, { id: `old${i}`, hooks: [], channel: "C" }, null, 1, now - 200 * DAY);
+  assert.equal(m.record.channels.c.level, "junk", "junk food back then");
+  M.refreshRecord(m, now - 100 * DAY);
+  assert.equal(m.record.channels.c.level, "risky", "100 days later it has faded to risky...");
+  M.refreshRecord(m, now);
+  assert.equal(m.record.channels.c.level, "risky", "...still risky at 200 days (leaving takes more than entering)...");
+  M.refreshRecord(m, now + 165 * DAY);
+  assert.equal(m.record.channels.c.level, "none", "...and gone after a year");
+  assert.ok(Math.abs(M.fade(0, 90 * DAY) - 0.5) < 1e-9);
+  // taking back a faded rating removes only what's left of it
+  M.recordRating(m, { id: "old0", hooks: [], channel: "C" }, 1, 5, now + 165 * DAY);
+  assert.ok(m.record.channels.c.bad > 0 && m.record.channels.c.bad < 1);
 });
