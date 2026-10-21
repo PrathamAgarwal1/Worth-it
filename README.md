@@ -8,7 +8,7 @@
 
 Neuroscientists Kent Berridge and Terry Robinson showed that **wanting** (the dopamine-driven pull toward something) and **liking** (actually enjoying it) run on separate brain systems. That's why you can keep clicking on things that don't make you happy.
 
-YouTube's recommender learns from what you *click*, which is wanting. Worth It? also measures what you *like* by asking one quick question after each video: **"Was that worth it?"** Then it re-ranks your feed for liking.
+YouTube's recommender learns from what you *click*, which is wanting. Worth It? also measures what you *like*, with one quick question in a slim bar under every video: **"Was that worth it?"** Then it flags the junk food on your feed and suggests what's actually worth your time.
 
 ## What it does
 
@@ -24,9 +24,11 @@ YouTube's recommender learns from what you *click*, which is wanting. Worth It? 
 | 🌙 | **Notices your vulnerable moments**: late night and deep in a session | Fatigue weakens self-control while the cue's pull stays strong |
 | 📊 | **"Your Brain on YouTube" report**: week-by-week worth-it % and regretted time, your personal triggers, worst hours, rabbit holes, moods, and every channel's verdict (which you can overrule) | |
 
+![The "Worth it?" bar under the video](docs/watch.png)
+
 ![Your Brain on YouTube report (demo data)](docs/report.png)
 
-*The report above uses the built-in demo data (a simulated viewer). Yours fills in as you watch and rate.*
+*The screenshots use the project's mock YouTube page and the built-in demo data (a simulated viewer). Yours fills in as you watch and rate.*
 
 ## Install (2 minutes)
 
@@ -36,7 +38,7 @@ YouTube's recommender learns from what you *click*, which is wanting. Worth It? 
 4. Click **Load unpacked** and pick the `worth-it` folder.
 5. Pin the 🧠 icon, then open YouTube.
 
-To use it, browse normally. Every video shows its **worth-it %**; hover the badge to see *why*. Under the video you're watching, tap a face to say whether it was worth it (it takes one second; the bar lights up when the video ends). Prefer a popup? Pick one in the toolbar popup. Open the report from the toolbar icon. To see what it looks like before you have data, click **Load demo data** at the bottom of the report.
+To use it, browse normally. Every video shows its **worth-it %**; hover the badge to see *why*, or click it to overrule the verdict for that channel. Under the video you're watching, tap a face to say whether it was worth it (it takes one second; the bar lights up when the video ends). The brain icon in YouTube's top bar lists the most worth-it videos on the page. Prefer a popup too? Pick one in the toolbar popup, where you also set **how strict** it is about junk food. Open the report from the toolbar icon. To see what it looks like before you have data, click **Load demo data** at the bottom of the report.
 
 ## Privacy
 
@@ -60,7 +62,7 @@ popup/             toolbar popup: switches, strictness slider, today's stats
   - **Left in the first 20%:** waits 3 days. If you come back to the video in that time, it's treated as "watching the rest later" and never counts against it.
   - **"⏸ Finishing later":** never counts against the video, even if you don't come back.
   - **Rewatching** a video you'd already finished (for at least a minute) teaches a strong "liked it". **Bouncing**, leaving a video of 2+ minutes within 30 seconds on a first visit, teaches a small "didn't". Neither counts toward the junk-food track record, which is only your ratings.
-  - **Watching again:** each video has one entry. Watch time adds up across visits, and if you're asked again, the prompt shows your last answer and a new one replaces it (the model only re-learns if your opinion changed).
+  - **Watching again:** each video has one entry. Watch time adds up across visits, the bar shows your last answer, and a new one replaces it (the model only re-learns if your opinion changed).
 - **Packaging vs track record:** each channel gets its own learned offset on top of the hook weights. A channel with clickbait-style titles that you consistently enjoy ends up "✓ worth it", and its hooks are shown only as small emoji. The same hooks from a channel you regret get flagged.
 - **Getting started:** both models start from priors that say hooks pull harder but pay off less, and that late nights and long sessions make it worse. These priors move the *worth it %*, but they never trigger a verdict on their own.
 - **Verdicts come from your track record:** each channel and each hook keeps a count of how you rated it. A level is only given when the evidence is confident (a Beta posterior: at least 70% sure that under half of its videos are worth it to you for ⚠ *risky*, 85% for 🍔 *junk food*, 85% sure that over half are for ✓ *worth it*). In practice: 1 bad rating is nothing, 2 make a channel risky, 3 of 3 or 4 of 5 make it junk food. Leaving a level takes clearly better evidence than entering it, so one rating doesn't flip it back and forth.
@@ -72,7 +74,7 @@ popup/             toolbar popup: switches, strictness slider, today's stats
   - **Older ratings fade:** a rating counts half as much after 90 days, a quarter after 180, so a channel that changed gets re-judged, and a verdict nobody backs up any more expires on its own.
   - **Your call wins:** click any badge to see why, and choose "isn't junk for me" or "always flag" for its channel (or change it under *Channels* in the report). Only your rating of a specific video outranks it.
   - Hover any badge to see what it's based on, e.g. "4 of your 5 ratings of DramaDaily were OK or worse."
-- **The ranking score** comes from the [KuaiRand research](../README.md) in the parent folder. That study showed, on 1.19M real impressions, that ranking this way cuts regretted clicks by about 10%.
+- **The picks ranking** (`liking − λ · max(0, wanting − liking)`) comes from an offline study on the KuaiRand dataset, which showed, on 1.19M real impressions, that ranking this way cuts regretted clicks by about 10%.
 
 ## Develop and test
 
@@ -84,14 +86,22 @@ node --test test/hooks.test.js test/model.test.js test/store.test.js
 python test/serve.py
 ```
 
-The first command runs the unit tests: hook detection, the model, the demo generator, and storage flows (return visits, "finishing later", "got what I needed"). The second starts a mock YouTube at http://localhost:8765 that runs the real extension code end to end. `/report/report.html?demo=1` shows the report with demo data.
+The first command runs the unit tests: hook detection, both models, the track record (confidence levels, fading, overrides, strictness), the demo generator, and storage flows (re-watches and re-ratings, rewatches and bounces, "finishing later", "got what I needed").
+
+The second starts a mock YouTube at http://localhost:8765 that runs the real extension code end to end. It copies the quirks of the real site that caused bugs: the previous video's title lingering after you navigate, earlier pages kept hidden in the page, the miniplayer, and a video ending without its "ended" event. Useful pages:
+
+- `/` the home feed, `/watch?v=mockvid0001` a watch page
+- `/?shot=1` demo data with the picks menu open (used for the screenshots above)
+- `/report/report.html?demo=1` the report with demo data
+- `/popup/popup.html` the toolbar popup
 
 ## Limitations
 
 - **English titles only.** Hook detection is rule-based, so it's fast, private and explainable, but it misses subtle or non-English hooks.
 - **"Loud thumbnail" is a colour heuristic** (saturation, vivid pixels, contrast). It doesn't detect faces or arrows.
-- **YouTube changes its page layout often.** The selectors cover the current and previous layouts, but they may need updating.
+- **YouTube changes its page layout often.** The selectors cover the current and previous layouts, but they may need updating. Development and testing happen on the mock YouTube page, so check new behaviour on the real site too.
 - **Shorts aren't tracked yet.**
+- **Desktop Chrome only.** Chrome on phones doesn't run extensions, and no extension can reach the YouTube app.
 - **Early on, the priors do most of the work** for the worth-it %. Expect around 30 rated videos before the report says much about *you*.
-- **It judges a channel's track record, not each video's content.** One great video from a channel you usually regret can still get flagged. Hover to unblur.
+- **It judges a channel's track record, not each video's content.** One great video from a channel you usually regret can still get flagged: hover to unblur, rate it, or tell it the channel isn't junk for you.
 - **It's self-tracking, not a clinical tool.** Ratings are your own judgement, and the patterns are correlations.
