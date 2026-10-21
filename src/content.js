@@ -283,12 +283,18 @@
 
   const mainVideo = () => document.querySelector("#movie_player video") || document.querySelector("ytd-watch-flexy video");
 
-  let missingPlayer = 0;
+  let missingPlayer = 0, pausedSince = null;
   function poll() {
     const v = mainVideo();
     const player = document.getElementById("movie_player");
     const now = Date.now();
     if (watch && !v && ++missingPlayer === 5) log("can't find YouTube's video player on this page");
+    if (watch && location.pathname !== "/watch" && miniplayerDone(v, now)) return endWatch();
+    // Reached the end. YouTube's "ended" event doesn't always come (autoplay, end screens), so check here
+    // too. visitSec guards the first moments of the next video, while the player still shows this one's end.
+    if (watch && v && watch.visitSec >= 10 && (v.ended || (v.duration > 30 && v.currentTime >= v.duration - 1.5))) {
+      return finishWatch();
+    }
     if (!watch || !v || v.paused || v.ended || (player && player.classList.contains("ad-showing"))) {
       lastT = v ? v.currentTime : null;
       lastWall = now;
@@ -297,25 +303,42 @@
     missingPlayer = 0;
     const dt = v.currentTime - (lastT == null ? v.currentTime : lastT);
     const wall = (now - (lastWall == null ? now : lastWall)) / 1000;
-    if (dt > 0 && dt <= wall * 2.5 + 1) watch.watchedSec += dt;   // real playback (≤2× speed), not a seek
+    if (dt > 0 && dt <= wall * 2.5 + 1) {   // real playback (≤2× speed), not a seek
+      watch.watchedSec += dt;
+      watch.visitSec += dt;
+    }
     lastT = v.currentTime;
     lastWall = now;
     if (isFinite(v.duration) && v.duration > 0) watch.durationSec = Math.round(v.duration);
     if (panelOpen) schedulePanel();   // keep the "watched so far" line current while the panel is open
   }
 
+  // Leaving the watch page while the video carries on in the miniplayer isn't leaving the video. It
+  // ends when the miniplayer closes, or stays paused for a few seconds.
+  const playingInMiniplayer = (v) => !!(v && !v.paused && !v.ended && isShown(v));
+  function miniplayerDone(v, now) {
+    if (!v || v.ended || !isShown(v)) return true;
+    if (!v.paused) pausedSince = null;
+    else if (pausedSince == null) pausedSince = now;
+    return pausedSince != null && now - pausedSince >= 5000;
+  }
+
   // Media events don't bubble, but a capturing listener on the document still sees them.
-  let endedId = null;   // the video that ended on this page: playing it again is another visit
+  // The video that ended on this page, and where: playing it again from earlier on is another visit.
+  let endedId = null, endedAt = 0;
+  function finishWatch() {
+    const v = mainVideo();
+    endedId = watch.id;
+    endedAt = v ? v.currentTime : 0;
+    endWatch();
+  }
   document.addEventListener("ended", (e) => {
-    if (watch && e.target === mainVideo()) {
-      endedId = watch.id;
-      endWatch();
-    }
+    if (watch && e.target === mainVideo()) finishWatch();
   }, true);
   function checkReplay() {
     const v = mainVideo();
     const id = location.pathname === "/watch" ? new URLSearchParams(location.search).get("v") : null;
-    if (watch || !endedId || id !== endedId || !v || v.paused || v.ended) return;
+    if (watch || !endedId || id !== endedId || !v || v.paused || v.ended || v.currentTime > endedAt - 5) return;
     endedId = null;
     pageQueue = pageQueue.then(() => !watch && startWatch(id));
   }
@@ -340,11 +363,12 @@
     const resume = c && c.resume;
     const now = Date.now();
     watch = { id, title: "", channel: "", hooks: [], ts: resume ? resume.ts : now, lastTs: now, depth: ctx.depth,
-              watchedSec: resume ? resume.watchedSec : 0, durationSec: 0,
+              watchedSec: resume ? resume.watchedSec : 0, visitSec: 0, durationSec: 0,
               prevRating: resume && resume.rating != null ? resume.rating : null, prevPartial: !!(resume && resume.partial) };
     log("watching", id, resume ? `(continuing, ${resume.watchedSec}s so far)` : "", c ? "" : "(background not responding)");
     const mine = watch;
     endedId = null;
+    pausedSince = null;
     if (card) Object.assign(mine, { title: card.title, channel: card.channel, hooks: card.hooks });
     const prev = lastMeta;
     let tries = 0;
@@ -377,7 +401,10 @@
   }
 
   // ended: you left the video (vs. a checkpoint while it's still playing).
-  const snapshot = (ended) => ({ ...watch, watchedSec: Math.round(watch.watchedSec), ended });
+  const snapshot = (ended) => {
+    const { visitSec, ...w } = watch;
+    return { ...w, watchedSec: Math.round(watch.watchedSec), ended };
+  };
 
   async function endWatch() {
     if (!watch) return;
@@ -448,17 +475,31 @@
     const close = (dismissed) => {
       if (prompt !== el) return;
       clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisible);
       if (dismissed) send("dismiss", { id: w.id, ts: w.ts });
       el.remove();
       prompt = closePrompt = null;
     };
     closePrompt = close;
-    // Goes away on its own if ignored, but never while the pointer is on it.
-    let timer = setTimeout(() => close(true), PROMPT_MS);
-    el.addEventListener("mouseenter", () => clearTimeout(timer));
-    el.addEventListener("mouseleave", () => {
+    // Goes away on its own if ignored, but only while you can see it: never while the pointer is on it,
+    // and not while the tab is in the background (it waits there until you come back).
+    let timer = null, hovered = false;
+    const arm = (ms) => {
       clearTimeout(timer);
-      if (prompt === el && !el.querySelector(".wi-thanks")) timer = setTimeout(() => close(true), PROMPT_MS / 2);
+      if (prompt === el && !hovered && document.visibilityState === "visible" && !el.querySelector(".wi-thanks")) {
+        timer = setTimeout(() => close(true), ms);
+      }
+    };
+    const onVisible = () => arm(PROMPT_MS);
+    document.addEventListener("visibilitychange", onVisible);
+    arm(PROMPT_MS);
+    el.addEventListener("mouseenter", () => {
+      hovered = true;
+      clearTimeout(timer);
+    });
+    el.addEventListener("mouseleave", () => {
+      hovered = false;
+      arm(PROMPT_MS / 2);
     });
     prompt.addEventListener("click", (e) => {
       const m = e.target.closest("[data-m]");
@@ -472,8 +513,7 @@
       if (e.target.closest(".wi-more")) {
         prompt.querySelector(".wi-extra").hidden = false;
         e.target.closest(".wi-more").remove();
-        clearTimeout(timer);                          // opened the options: don't vanish mid-choice
-        timer = setTimeout(() => close(true), PROMPT_MS * 2);
+        arm(PROMPT_MS * 2);                           // opened the options: don't vanish mid-choice
       } else if (m) {
         mood = mood === m.dataset.m ? null : m.dataset.m;
         prompt.querySelectorAll("[data-m]").forEach((b) => b.classList.toggle("on", b.dataset.m === mood));
@@ -501,7 +541,7 @@
     if (id && (!watch || watch.id !== id)) {
       await endWatch();
       await startWatch(id);
-    } else if (!id) {
+    } else if (!id && !playingInMiniplayer(mainVideo())) {
       await endWatch();
     }
     scan();

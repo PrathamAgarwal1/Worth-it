@@ -24,6 +24,9 @@
     ytd-watch-metadata h1 { font-size: 20px; margin: 12px 0 4px; }
     #related ytd-compact-video-renderer { display: grid; grid-template-columns: 168px 1fr; gap: 8px; margin-bottom: 12px; }
     #related #details h3 { font-size: 14px; margin: 0 0 4px; }
+    ytd-watch-flexy.mini { position: fixed; right: 16px; bottom: 16px; width: 320px; z-index: 10; }
+    ytd-watch-flexy.mini .watch { display: block; padding: 0; }
+    ytd-watch-flexy.mini #related, ytd-watch-flexy.mini ytd-watch-metadata { display: none; }
   </style>
 </head>
 <body>
@@ -68,10 +71,13 @@
 
     // Like real YouTube, pages you leave stay in the DOM, hidden (the home feed behind a watch page),
     // and after an in-app navigation the watch page shows the previous video's title for a moment.
+    // Tests can set window.mockMiniplayer (leaving a video keeps it playing in a corner; closeMiniplayer()
+    // closes it) and window.mockNoEndedEvent (the video reaches its end without firing "ended").
     let fakePlayer = null;
     function render() {
-      clearInterval(fakePlayer);
       const app = document.getElementById("app");
+      const mini = window.mockMiniplayer && location.pathname !== "/watch" && app.querySelector("ytd-watch-flexy:not([hidden])");
+      if (!mini) clearInterval(fakePlayer);
       if (!app.children.length) {
         app.innerHTML = `<ytd-browse><div id="contents">${VIDEOS.map((v) => card(v, "ytd-rich-item-renderer")).join("")}</div></ytd-browse>
           <ytd-watch-flexy hidden><div class="watch"><div>
@@ -89,7 +95,8 @@
       const browse = app.querySelector("ytd-browse"), flexy = app.querySelector("ytd-watch-flexy");
       const onWatch = location.pathname === "/watch";
       browse.hidden = onWatch;
-      flexy.hidden = !onWatch;
+      flexy.hidden = !onWatch && !mini;
+      flexy.classList.toggle("mini", !!mini);
       if (!onWatch) return;
       const v = VIDEOS.find((x) => x.id === new URLSearchParams(location.search).get("v")) || VIDEOS[0];
       flexy.setAttribute("video-id", v.id);
@@ -106,9 +113,18 @@
       fakePlayer = setInterval(() => {
         if (video._ended) return;   // test: set video._ended, dispatch "ended"; clear it again to replay
         video._t += 0.2;
+        if (video._t >= 300) {
+          video._t = 300;
+          video._ended = true;
+          if (!window.mockNoEndedEvent) video.dispatchEvent(new Event("ended"));
+        }
         document.getElementById("pt").textContent = `▶ watched ${Math.round(video._t)}s (2× speed)`;
         video.dispatchEvent(new Event("timeupdate"));
       }, 100);
+    }
+    function closeMiniplayer() {
+      clearInterval(fakePlayer);
+      document.querySelector("ytd-watch-flexy").hidden = true;
     }
     // ?navEvents=0 hides YouTube's navigation events from the extension (fired on an inner element
     // without bubbling), to test that page changes are still noticed from the URL alone.
