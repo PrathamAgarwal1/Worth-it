@@ -52,6 +52,10 @@ html[dark] {
 [data-wi-vid]:hover .wi-b-text { display: inline; }
 .wi-badge-junk { background: rgba(235, 104, 52, 0.85); opacity: 0.9; }
 .wi-badge-good { background: rgba(27, 175, 122, 0.8); }
+.wi-badge-risky { background: rgba(15, 15, 15, 0.6); box-shadow: inset 0 0 0 1.5px var(--wi-want); }
+
+/* ---- Risky: a thin orange outline on the thumbnail, no blur ---- */
+.wi-risky .wi-host { outline: 2px solid rgba(235, 104, 52, 0.7); outline-offset: -2px; border-radius: 12px; }
 
 /* ---- Junk food: a gentle blur that lowers the thumbnail's pull; hover to reveal ---- */
 .wi-blur :is(ytd-thumbnail, yt-thumbnail-view-model, a#thumbnail, .yt-lockup-view-model__content-image, .yt-lockup-view-model-wiz__content-image) img {

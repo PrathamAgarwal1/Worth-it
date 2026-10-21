@@ -166,3 +166,20 @@ test("only a video you left in the last few minutes, and weren't asked about, is
   assert.equal(await S.pendingRating(), null, "skipped by the 'Sometimes' limit: not brought up later");
   assert.equal(data.model.nLike, 0, "skipping learns nothing by itself");
 });
+
+test("ratings feed the track record; re-rating replaces, and old saved data is rebuilt", async () => {
+  await S.reset();
+  await S.init();
+  for (const id of ["a", "b", "c"]) {
+    await view(id, 300);
+    await S.rate({ id, rating: 1 });
+  }
+  assert.equal(data.model.record.channels.chan.level, "junk");
+  await S.rate({ id: "c", rating: 5 });                       // changed my mind about one
+  assert.deepEqual([data.model.record.channels.chan.n, data.model.record.channels.chan.pos], [3, 1]);
+  assert.equal(data.model.record.videos.c, 5);
+  delete data.model.record;                                   // saved by an older version
+  S.__resetForTest();
+  await S.init();
+  assert.deepEqual([data.model.record.channels.chan.n, data.model.record.channels.chan.neg], [3, 2]);
+});

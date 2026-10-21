@@ -19,7 +19,7 @@ YouTube's recommender learns from what you *click*, which is wanting. Worth It? 
 | ↩️ | **One entry per video**: watching a video again adds to the same entry, and rating it again replaces your earlier answer | |
 | 🧠 | **Learns *your* wanting vs liking**: which hooks make you click, and which ones actually pay off, per hook *and per channel* | Two small personal models: P(click) and P(glad you watched) |
 | ⏱️ | **Learns even when you don't rate**: finishing most of a video counts as a weak "liked it". Leaving in the first 20% counts as a weak "didn't" only if you don't come back within 3 days. Leaving halfway counts as nothing | Behavioural signal to complement self-report |
-| 🍔 | **Flags junk food, only with evidence**: once *your* ratings show a channel or hook pulls hard but rarely pays off, it gets an orange badge and a blurred thumbnail (hover to reveal). On day 1, hooks are only labelled, never judged | Lowering cue reactivity: a blurred cue has less pull |
+| 🍔 | **Flags junk food from your track record**: three levels, ⚠ *risky* (orange outline), 🍔 *junk food* (blurred, hover to reveal) and ✓ *worth it*, judged from how you actually rated that channel or hook, only once the evidence is confident. Your own rating of a video always wins, and long videos you'd likely regret are judged more strictly. On day 1, hooks are only labelled, never judged | Lowering cue reactivity: a blurred cue has less pull |
 | ⭐ | **Suggests worth-it picks** from the current page: click the brain icon in YouTube's top bar (next to the bell) | Ranks by `liking − λ · max(0, wanting − liking)` |
 | 🌙 | **Notices your vulnerable moments**: late night and deep in a session | Fatigue weakens self-control while the cue's pull stays strong |
 | 📊 | **"Your Brain on YouTube" report**: your personal triggers, worst hours, rabbit holes, moods and channels | |
@@ -61,7 +61,13 @@ popup/             toolbar popup: switches, strictness slider, today's stats
   - **"⏸ Finishing later":** never counts against the video, even if you don't come back.
   - **Watching again:** each video has one entry. Watch time adds up across visits, and if you're asked again, the prompt shows your last answer and a new one replaces it (the model only re-learns if your opinion changed).
 - **Packaging vs track record:** each channel gets its own learned offset on top of the hook weights. A channel with clickbait-style titles that you consistently enjoy ends up "✓ worth it", and its hooks are shown only as small emoji. The same hooks from a channel you regret get flagged.
-- **Getting started:** both models start from priors that say hooks pull harder but pay off less, and that late nights and long sessions make it worse. These priors move the *worth it %*, but they never trigger a junk-food verdict on their own. That takes at least 2 ratings of the channel or 5 ratings of videos with that hook, plus a below-60% chance you'll enjoy it. Hover any badge to see what it's based on.
+- **Getting started:** both models start from priors that say hooks pull harder but pay off less, and that late nights and long sessions make it worse. These priors move the *worth it %*, but they never trigger a verdict on their own.
+- **Verdicts come from your track record:** each channel and each hook keeps a count of how you rated it. A level is only given when the evidence is confident (a Beta posterior: at least 70% sure that under half of its videos are worth it to you for ⚠ *risky*, 85% for 🍔 *junk food*, 85% sure that over half are for ✓ *worth it*). In practice: 1 bad rating is nothing, 2 make a channel risky, 3 of 3 or 4 of 5 make it junk food. Leaving a level takes clearly better evidence than entering it, so one rating doesn't flip it back and forth.
+  - **No hook needed:** a plain-titled channel you keep regretting is flagged too.
+  - **The channel decides first;** a hook's record (across every channel) only decides for channels without one, and never blurs a channel you've enjoyed before.
+  - **Your own rating wins:** a video you rated 😩 or 😕 is always junk food, one you rated 🙂 or 🤩 never is.
+  - **Minutes matter:** a risky video you'd likely regret 30+ minutes of counts as junk food; junk food under 2 minutes is only risky. Badges and the picks menu show the likely regretted minutes.
+  - Hover any badge to see what it's based on, e.g. "4 of your 5 ratings of DramaDaily were OK or worse."
 - **The ranking score** comes from the [KuaiRand research](../README.md) in the parent folder. That study showed, on 1.19M real impressions, that ranking this way cuts regretted clicks by about 10%.
 
 ## Develop and test

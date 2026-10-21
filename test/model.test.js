@@ -3,28 +3,34 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const M = require("../src/model.js");
 
+// Rate n videos: teaches the model and the track record, like the store does.
+let nextId = 0;
 const rateN = (m, hooks, rating, n, channel) => {
-  for (let i = 0; i < n; i++) M.update(m, "like", M.features(hooks, {}), M.ratingTarget(rating), { channel });
+  for (let i = 0; i < n; i++) {
+    M.update(m, "like", M.features(hooks, {}), M.ratingTarget(rating), { channel });
+    M.recordRating(m, { id: `v${nextId++}`, hooks, channel }, null, rating);
+  }
 };
 
-test("priors: hooks lower the expected payoff, but no junk verdict without your own ratings", () => {
+test("priors: hooks lower the expected payoff, but no verdict without your own ratings", () => {
   const m = M.freshModel();
   const hooked = M.score(m, ["curiosity_gap", "shouting"], { depth: 1, lateNight: false }, 1);
   const plain = M.score(m, [], { depth: 1, lateNight: false }, 1);
   assert.ok(hooked.pull > 1 && plain.pull === 1);
   assert.ok(plain.worthIt > hooked.worthIt);
   assert.ok(plain.rank > hooked.rank);
-  assert.ok(hooked.gap >= M.JUNK_GAP, "the gap is there...");
-  assert.equal(hooked.junk, false, "...but it isn't a verdict yet");
-  assert.equal(hooked.evidence.enough, false);
+  assert.ok(hooked.gap > 0, "the pull is there...");
+  assert.equal(hooked.level, "none", "...but it isn't a verdict");
+  assert.equal(hooked.basis, null);
 });
 
-test("junk food once your ratings back it up", () => {
+test("a hook you keep regretting is junk food, from any channel", () => {
   const m = M.freshModel();
-  rateN(m, ["curiosity_gap"], 1, 6);
-  const s = M.score(m, ["curiosity_gap"], {}, 1);
-  assert.equal(s.evidence.hookRated, 6);
-  assert.equal(s.junk, true);
+  for (const ch of ["A", "B", "C", "D", "E", "F"]) rateN(m, ["curiosity_gap"], 1, 1, ch);
+  const s = M.score(m, ["curiosity_gap"], {}, 1, "Never Rated");
+  assert.equal(s.level, "junk");
+  assert.equal(s.basis.kind, "hook");
+  assert.equal(s.basis.n, 6);
 });
 
 test("channel track record beats packaging: same hook, different channels", () => {
@@ -34,18 +40,88 @@ test("channel track record beats packaging: same hook, different channels", () =
   const good = M.score(m, ["curiosity_gap"], {}, 1, "Curious Science");
   const bad = M.score(m, ["curiosity_gap"], {}, 1, "drama daily");   // channel names are case-insensitive
   assert.ok(good.worthIt > bad.worthIt + 0.2, `good=${good.worthIt} bad=${bad.worthIt}`);
-  assert.equal(good.junk, false);
-  assert.equal(bad.junk, true);
-  assert.equal(bad.evidence.channelRated, 4);
+  assert.equal(good.level, "good");
+  assert.equal(bad.level, "junk");
+  assert.deepEqual([bad.basis.kind, bad.basis.n, bad.basis.neg], ["channel", 4, 4]);
 });
 
-test("never junk if you're likely to enjoy it", () => {
+test("no hook needed: a plain-titled channel you regret is junk food", () => {
   const m = M.freshModel();
-  rateN(m, [], 5, 30);                         // you enjoy most things
-  rateN(m, ["outrage"], 4, 6);
-  const s = M.score(m, ["outrage"], {}, 1);
-  assert.ok(s.worthIt >= M.WORTH_OK);
-  assert.equal(s.junk, false);
+  rateN(m, [], 1, 3, "Calm Titles");
+  assert.equal(M.score(m, [], {}, 1, "Calm Titles").level, "junk");
+});
+
+test("how much evidence it takes: 1 bad rating is nothing, 2 risky, 3 of 3 or 4 of 5 junk", () => {
+  const levels = (ratings) => {
+    const m = M.freshModel();
+    return ratings.map((r) => (rateN(m, [], r, 1, "C"), m.record.channels.c.level));
+  };
+  assert.deepEqual(levels([1, 1, 1]), ["none", "risky", "junk"]);
+  assert.equal(levels([1, 1, 4, 1, 2]).pop(), "junk");
+  assert.equal(levels([1, 1, 4, 1]).pop(), "risky");
+  assert.deepEqual(levels([5, 5, 4]), ["none", "none", "good"]);
+});
+
+test("a verdict doesn't flip on one rating: leaving a level takes more than entering it", () => {
+  const m = M.freshModel();
+  rateN(m, [], 1, 3, "C");
+  assert.equal(m.record.channels.c.level, "junk");
+  rateN(m, [], 4, 1, "C");
+  assert.equal(m.record.channels.c.level, "junk", "one good video doesn't undo three bad ones");
+  // ...but the same evidence arrived at from scratch would only be risky: that's the buffer
+  assert.ok(M.badChance(m.record.channels.c) < M.LEVELS.junk.enter);
+  rateN(m, [], 5, 2, "C");
+  assert.notEqual(m.record.channels.c.level, "junk", "a run of good ones does");
+});
+
+test("your own rating of a video always wins", () => {
+  const m = M.freshModel();
+  rateN(m, ["outrage"], 1, 4, "Drama Daily");
+  M.recordRating(m, { id: "loved", hooks: ["outrage"], channel: "Drama Daily" }, null, 5);
+  M.recordRating(m, { id: "hated", hooks: [], channel: "Lovely" }, null, 1);
+  const loved = M.score(m, ["outrage"], {}, 1, "Drama Daily", { id: "loved" });
+  const hated = M.score(m, [], {}, 1, "Lovely", { id: "hated" });
+  assert.deepEqual([loved.level, loved.basis.kind], ["good", "you"]);
+  assert.deepEqual([hated.level, hated.basis.kind], ["junk", "you"]);
+});
+
+test("changing your rating replaces it in the track record", () => {
+  const m = M.freshModel();
+  const w = { id: "x", hooks: [], channel: "C" };
+  M.recordRating(m, w, null, 1);
+  M.recordRating(m, w, 1, 5);
+  const g = m.record.channels.c;
+  assert.deepEqual([g.n, g.pos, g.neg, m.record.videos.x], [1, 1, 0, 5]);
+  assert.ok(Math.abs(g.good - 1) < 1e-9 && Math.abs(g.bad) < 1e-9);
+});
+
+test("a hook alone doesn't blur a channel you've enjoyed before", () => {
+  const m = M.freshModel();
+  for (const ch of ["A", "B", "C", "D", "E", "F"]) rateN(m, ["fear"], 1, 1, ch);
+  rateN(m, ["fear"], 5, 1, "Science Weekly");
+  const s = M.score(m, ["fear"], {}, 1, "Science Weekly");
+  assert.equal(s.level, "risky");
+  assert.equal(s.capped, true);
+});
+
+test("minutes matter: long risky videos are junk food, tiny junk ones only risky", () => {
+  const m = M.freshModel();
+  rateN(m, [], 1, 2, "Risky");     // risky
+  rateN(m, [], 1, 3, "Junk");      // junk food
+  const long = M.score(m, [], {}, 1, "Risky", { id: "l", durationSec: 3 * 3600 });
+  const short = M.score(m, [], {}, 1, "Junk", { id: "s", durationSec: 60 });
+  assert.equal(long.level, "junk");
+  assert.equal(long.long, true);
+  assert.ok(long.regretMin > M.LONG_REGRET_MIN);
+  assert.equal(short.level, "risky");
+  assert.equal(short.short, true);
+  assert.equal(M.score(m, [], {}, 1, "Risky", { durationSec: 600 }).level, "risky");
+});
+
+test("the Beta maths", () => {
+  assert.ok(Math.abs(M.betaCdf(0.5, 2, 2) - 0.5) < 1e-6);
+  assert.ok(Math.abs(M.betaCdf(0.5, 3, 1) - 0.125) < 1e-6);
+  assert.ok(Math.abs(M.betaCdf(0.5, 2, 4) - 0.8125) < 1e-6);
 });
 
 test("late night and deep sessions lower the expected payoff", () => {
@@ -113,6 +189,7 @@ test("demo data: hooky-but-good channel is spared, hooky-and-bad one is flagged"
   assert.ok(worth(stats.hooks.shouting) < worth(stats.none), "shouting should pay off less");
   const hooks = M.detectHooks("The Truth About Seed Oils Nobody Tells You", 0.8);
   assert.equal(M.score(model, hooks, { depth: 1 }, 1, "Curious Science").junk, false);
+  assert.equal(M.score(model, hooks, { depth: 1 }, 1, "Shock Lab").junk, true, "the regretted channel is flagged from its ratings");
   assert.ok(M.score(model, hooks, { depth: 1 }, 1, "Curious Science").worthIt > 0.85);
   const good = M.score(model, hooks, { depth: 1 }, 1, "Curious Science");
   const bad = M.score(model, hooks, { depth: 1 }, 1, "Shock Lab");

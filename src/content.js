@@ -50,6 +50,16 @@
   }
 
   // ---- Reading a video card -------------------------------------------------------------
+  // The length shown on the thumbnail ("12:34" or "1:02:03"), in seconds.
+  const DURATION = "ytd-thumbnail-overlay-time-status-renderer, badge-shape, .yt-badge-shape__text, .badge-shape-wiz__text, [class*='time-status']";
+  function cardDuration(card) {
+    for (const el of card.querySelectorAll(DURATION)) {
+      const m = el.textContent.trim().match(/^(?:(\d+):)?(\d{1,2}):(\d{2})$/);
+      if (m) return (+m[1] || 0) * 3600 + +m[2] * 60 + +m[3];
+    }
+    return 0;
+  }
+
   function cardInfo(card) {
     const a = card.querySelector('a[href*="/watch?v="]');
     if (!a) return null;
@@ -62,34 +72,44 @@
     const chEl = [...card.querySelectorAll('ytd-channel-name a, #channel-name a, a[href^="/@"], a[href^="/channel/"]')]
       .find((e) => e.textContent.trim());
     const channel = chEl ? chEl.textContent.replace(/\s+/g, " ").trim() : "";
-    return title ? { id: m[1], title, channel } : null;
+    return title ? { id: m[1], title, channel, durationSec: cardDuration(card) } : null;
   }
 
-  function evaluate(id, title, channel) {
+  function evaluate(id, title, channel, durationSec) {
     const arousal = thumbArousal.get(id);
     const hooks = W.detectHooks(title, arousal == null ? undefined : arousal);
-    const s = W.score(model, hooks, ctx, settings.lambda, channel);
-    const v = { id, title, channel, hooks, s };
+    const s = W.score(model, hooks, ctx, settings.lambda, channel, { id, durationSec });
+    const v = { id, title, channel, durationSec, hooks, s };
     info.set(id, v);
     return v;
   }
 
+  const FACE_WORDS = ["", "😩 Waste", "😕 Meh", "😐 OK", "🙂 Good", "🤩 Loved it"];
+  const minutes = (m) => (m >= 90 ? `${Math.round(m / 6) / 10} h` : `${Math.max(1, Math.round(m))} min`);
+
+  /** Why this verdict, in plain words: what it's based on, and what would change it. */
   function tooltip(v) {
-    const lines = v.hooks.map((h) => `${W.BY_ID[h].emoji} ${W.BY_ID[h].label}: ${W.BY_ID[h].explain}`);
+    const s = v.s, b = s.basis, lines = [];
+    const of = (g, what) => `${g.neg} of your ${g.n} rating${g.n === 1 ? "" : "s"} of ${what} ${g.neg === 1 ? "was" : "were"} OK or worse`;
+    if (s.junk) lines.push("🍔 Junk food for you" + (settings.blur ? " (hover to unblur)" : ""));
+    else if (s.risky) lines.push("⚠ Risky for you");
+    else if (s.good) lines.push("✓ Worth it for you");
+    if (b && b.kind === "you") lines.push(`You rated this video ${FACE_WORDS[b.rating]}.`);
+    else if (b && b.kind === "channel" && (s.junk || s.risky)) lines.push(`${of(b, v.channel)}.`);
+    else if (b && b.kind === "channel") lines.push(`${b.pos} of your ${b.n} ratings of ${v.channel} were Good or better, so its hooks aren't held against it.`);
+    else if (b && b.kind === "hook") lines.push(`${of(b, `videos with ${W.BY_ID[b.hook].emoji} ${W.BY_ID[b.hook].label.toLowerCase()}`)}.`);
+    if (s.capped) lines.push(`Only risky, not junk food: you've enjoyed ${v.channel} before.`);
+    if (s.long) lines.push(`It's long: about ${minutes(s.regretMin)} you'd likely regret.`);
+    else if (s.short) lines.push("It's short, so only risky.");
+    else if ((s.junk || s.risky) && s.regretMin >= 1) lines.push(`About ${minutes(s.regretMin)} you'd likely regret.`);
     if (lines.length) lines.push("");
-    lines.push(`Pull: ${v.s.pull.toFixed(1)}× your usual click odds`, `Worth it: ${pct(v.s.worthIt)} chance you'll be glad you watched`);
-    const ev = v.s.evidence, ch = model.channels && model.channels[W.channelKey(v.channel)];
-    lines.push("");
-    if (ev.channelRated) lines.push(`Based on ${ev.channelRated} of your ratings of ${v.channel}${ev.hookRated ? ` and ${ev.hookRated} of videos with this hook` : ""}.`);
-    else if (ev.hookRated) lines.push(`Based on ${ev.hookRated} of your ratings of videos with this hook.`);
-    else lines.push("Based on research defaults: rate a few videos to make this about you.");
-    if (v.hooks.length && ch && ch.nLike >= W.EVIDENCE.channel && ch.like > 0.3) {
-      lines.push(`You usually enjoy ${v.channel}, so its hooks aren't held against it.`);
+    lines.push(`Worth it: ${pct(s.worthIt)} chance you'll be glad you watched`, `Pull: ${s.pull.toFixed(1)}× your usual click odds`);
+    if (v.hooks.length) {
+      lines.push("", ...v.hooks.map((h) => `${W.BY_ID[h].emoji} ${W.BY_ID[h].label}: ${W.BY_ID[h].explain}`));
     }
-    if (v.s.junk) lines.push("", "Junk food: pulls harder than it pays off, for you. Hover to unblur.");
-    else if (v.hooks.length && v.s.gap >= W.JUNK_GAP && !v.s.evidence.enough) {
-      lines.push("", "No verdict yet: the hook is noted, but there aren't enough of your own ratings to judge it.");
-    }
+    if (!b) lines.push("", v.hooks.length
+      ? "No verdict yet: the hook is noted, but there aren't enough of your own ratings to judge it."
+      : "No verdict yet: rate a few videos from this channel to get one.");
     return lines.join("\n");
   }
 
@@ -97,18 +117,27 @@
     card.dataset.wiVid = v.id;
     card.classList.toggle("wi-junk", v.s.junk);
     card.classList.toggle("wi-blur", v.s.junk && settings.blur);
+    card.classList.toggle("wi-risky", v.s.risky);
     const host = card.querySelector(THUMB) || card;
     host.classList.add("wi-host");
     let badge = host.querySelector(":scope > .wi-badge");
-    // Every video gets a small chip with its worth-it %; the hook's name appears when you hover.
+    // Every video gets a small chip with its worth-it %; the reason appears when you hover.
     const first = v.hooks[0] && W.BY_ID[v.hooks[0]];
     const more = v.hooks.length > 1 ? ` +${v.hooks.length - 1}` : "";
     const emojis = v.hooks.map((h) => W.BY_ID[h].emoji).join("");
+    const why = v.s.basis && v.s.basis.kind === "you" ? "you rated it"
+      : v.s.basis && v.s.basis.kind === "channel" ? "this channel"
+      : first ? `${first.label}${more}` : "";
+    const cost = v.s.regretMin >= 1 && (v.s.junk || v.s.risky) ? ` · ~${minutes(v.s.regretMin)}` : "";
     let cls = "wi-badge", icon = `${pct(v.s.worthIt)}${emojis ? ` ${emojis}` : ""}`, text = first ? `${first.label}${more}` : "";
     if (v.s.junk) {
       cls += " wi-badge-junk";
-      text = `junk food · ${first.label}${more}`;
-    } else if (v.s.worthIt >= W.WORTH_OK && v.s.evidence.enough) {
+      text = `junk food · ${why}${cost}`;
+    } else if (v.s.risky) {
+      cls += " wi-badge-risky";
+      icon = `⚠ ${icon}`;
+      text = `risky · ${why}${cost}`;
+    } else if (v.s.good) {
       // A good track record (from your own ratings) wins over packaging.
       cls += " wi-badge-good";
       icon = `✓ ${icon}`;
@@ -135,16 +164,16 @@
       // YouTube recycles card elements; one that's emptied out mustn't keep the old video's marks.
       if (card.dataset.wiVid) {
         delete card.dataset.wiVid;
-        card.classList.remove("wi-junk", "wi-blur");
+        card.classList.remove("wi-junk", "wi-blur", "wi-risky");
         card.querySelectorAll(".wi-badge").forEach((b) => b.remove());
       }
       return;
     }
     const known = info.get(ci.id);
-    const same = known && known.title === ci.title && known.channel === ci.channel;
+    const same = known && known.title === ci.title && known.channel === ci.channel && known.durationSec === ci.durationSec;
     // Re-render only if the video changed, or YouTube re-drew the thumbnail and dropped our badge.
     const upToDate = same && card.dataset.wiVid === ci.id && (card.dataset.wiBadge !== "1" || card.querySelector(".wi-badge"));
-    if (!upToDate) render(card, same ? known : evaluate(ci.id, ci.title, ci.channel));
+    if (!upToDate) render(card, same ? known : evaluate(ci.id, ci.title, ci.channel, ci.durationSec));
     observer.observe(card);
     if (!thumbArousal.has(ci.id)) {
       thumbArousal.set(ci.id, null);
@@ -152,7 +181,7 @@
         if (a == null) return;
         thumbArousal.set(ci.id, a);
         const card2 = document.querySelector(`[data-wi-vid="${ci.id}"]`);
-        if (card2) render(card2, evaluate(ci.id, ci.title, ci.channel));
+        if (card2) render(card2, evaluate(ci.id, ci.title, ci.channel, ci.durationSec));
         schedulePanel();
       });
     }
@@ -334,7 +363,9 @@
       document.body.appendChild(pop);
     }
     placePop();
-    const picks = uniq.filter((v) => !v.s.junk).sort((a, b) => b.s.rank - a.s.rank).slice(0, 5);
+    const picks = uniq.filter((v) => !v.s.junk).sort((a, b) => a.s.risky - b.s.risky || b.s.rank - a.s.rank).slice(0, 5);
+    const risky = uniq.filter((v) => v.s.risky).length;
+    const regret = uniq.filter((v) => v.s.junk || v.s.risky).reduce((m, v) => m + (v.s.regretMin || 0), 0);
     const state = ctx.lateNight || ctx.depth >= W.DEEP_SESSION
       ? `<div class="wi-pop-state">${ctx.lateNight ? "🌙 Late night" : ""}${ctx.lateNight && ctx.depth >= W.DEEP_SESSION ? " · " : ""}${ctx.depth >= W.DEEP_SESSION ? `🔁 Video #${ctx.depth} this session` : ""}: hooks pull harder right now.</div>`
       : "";
@@ -342,9 +373,10 @@
       <div class="wi-pop-head"><span>Most worth it on this page</span><button class="wi-pop-link" data-report>Your report</button></div>
       ${state}
       ${watch ? `<div class="wi-pop-state">▶ This video: ${clock(watch.watchedSec)} watched so far</div>` : ""}
-      <div class="wi-pop-list">${picks.map((v) => `<button class="wi-pick" data-go="${esc(v.id)}"><b>${pct(v.s.worthIt)}</b><span>${esc(v.title)}</span></button>`).join("")
+      <div class="wi-pop-list">${picks.map((v) => `<button class="wi-pick" data-go="${esc(v.id)}"><b>${v.s.risky ? "⚠ " : ""}${pct(v.s.worthIt)}</b><span>${esc(v.title)}</span></button>`).join("")
         || `<div class="wi-empty">${location.pathname.startsWith("/shorts") ? "Shorts aren't scored yet." : "No videos on this page yet. Scroll to load some."}</div>`}</div>
-      ${junk ? `<div class="wi-pop-foot">${junk} likely junk-food video${junk === 1 ? "" : "s"} ${settings.blur ? "blurred" : "flagged"} · hover a badge to see why</div>` : ""}`;
+      ${junk || risky ? `<div class="wi-pop-foot">${[junk ? `${junk} junk-food video${junk === 1 ? "" : "s"} ${settings.blur ? "blurred" : "flagged"}` : "",
+        risky ? `${risky} risky` : "", regret >= 1 ? `~${minutes(regret)} you'd likely regret` : ""].filter(Boolean).join(" · ")}. Hover a badge to see why.</div>` : ""}`;
     if (html !== popHtml) pop.innerHTML = popHtml = html;
     if (!pop.classList.contains("wi-open")) requestAnimationFrame(() => panelOpen && pop.classList.add("wi-open"));
   }

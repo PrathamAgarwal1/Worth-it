@@ -55,7 +55,7 @@
       s.watches = s.watches || [];
       s.session = s.session || { lastTs: 0, depth: 0 };
       s.thumbs = s.thumbs || {};
-      mergeDuplicates(s);
+      if (mergeDuplicates(s) || !s.model.record) W.rebuildRecord(s.model, s.watches);
     });
     return ready;
   }
@@ -89,7 +89,7 @@
    * per video: watch time and visits add up, the latest answer wins, and the stats count it once.
    */
   function mergeDuplicates(st) {
-    if (new Set(st.watches.map((w) => w.id)).size === st.watches.length) return;
+    if (new Set(st.watches.map((w) => w.id)).size === st.watches.length) return false;
     const keep = new Map();   // id -> newest entry
     for (let i = st.watches.length - 1; i >= 0; i--) {
       const w = st.watches[i], k = keep.get(w.id);
@@ -108,6 +108,7 @@
       k.learned = k.learned || w.learned;
     }
     st.watches = st.watches.filter((w) => keep.get(w.id) === w);
+    return true;
   }
 
   /** items: [{id, hooks, clicked, ts, depth}] — videos that were on screen, and whether you clicked. */
@@ -218,6 +219,7 @@
       w.partial = !!partial;   // "got what I needed": worth it without finishing
       w.later = false;
       tallyRating(st.stats, w, 1);
+      W.recordRating(st.model, w, before, rating);   // the track record behind junk-food verdicts
       if (before == null || W.ratingTarget(before) !== W.ratingTarget(rating)) {
         W.update(st.model, "like", W.features(w.hooks, { lateNight: w.lateNight, depth: w.depth }), W.ratingTarget(rating),
                  { channel: w.channel });

@@ -17,8 +17,12 @@
  *   gap   = max(0, want lift - like lift)      (log-odds; how much more it pulls than it pays)
  *   score = like logit - λ · gap
  *
- * A video is only called junk food with *evidence*: your own ratings of this channel or of these
- * hooks. Before that, hooks are shown as information, not as a verdict.
+ * Verdicts (junk food, risky, worth it) come from your *track record* instead: how you actually rated
+ * each channel and each hook, kept as counts of "worth it" vs "not worth it" ratings. A group is only
+ * judged when the evidence is confident (a Beta posterior: e.g. at least 85% sure that under half of
+ * that channel's videos are worth it to you), and a verdict only changes when the evidence clearly
+ * moves (separate thresholds to enter and to leave a level). Your rating of a video always wins for
+ * that video. Long videos you'd likely regret are judged more strictly than short ones.
  */
 (function (root) {
   "use strict";
@@ -27,9 +31,20 @@
   const STATE_FEATURES = ["late_night", "deep_session"];
   const FEATURES = [...H.HOOK_IDS, ...STATE_FEATURES];
   const DEEP_SESSION = 10;      // videos in the current session
-  const JUNK_GAP = 0.6;         // log-odds gap above which a hooked video counts as junk food
-  const WORTH_OK = 0.6;         // at or above this chance of enjoying it, a video is never junk food
-  const EVIDENCE = { channel: 2, hook: 5 };   // ratings needed before the model will call something junk
+
+  // Track record. Each group (a channel, or a hook) starts from Beta(2, 2): "no idea, about half".
+  const TRACK_PRIOR = 2;
+  // How sure it must be that under half of a group's videos are worth it to you, to enter a level,
+  // and how far that can fall before it leaves it again (so one rating doesn't flip it back and forth).
+  // With these, 2 bad ratings of a channel make it risky, 3 of 3 or 4 of 5 make it junk food.
+  const LEVELS = {
+    junk: { enter: 0.85, exit: 0.75 },
+    risky: { enter: 0.7, exit: 0.6 },
+    good: { enter: 0.85, exit: 0.75 },   // sure that *over* half are worth it
+  };
+  const LONG_REGRET_MIN = 30;   // a risky video you'd likely regret this many minutes of counts as junk food
+  const SHORT_REGRET_MIN = 2;   // junk food this short is only risky (unless you rated it yourself)
+  const MAX_RATED_VIDEOS = 3000;
 
   const PRIOR = {
     want: { bias: -2.0, curiosity_gap: 0.5, outrage: 0.4, fear: 0.35, urgency: 0.3, social_proof: 0.2,
@@ -62,7 +77,7 @@
   }
 
   function freshModel() {
-    return { want: { ...PRIOR.want }, like: { ...PRIOR.like }, nWant: 0, nLike: 0, channels: {}, hookRated: {} };
+    return { want: { ...PRIOR.want }, like: { ...PRIOR.like }, nWant: 0, nLike: 0, channels: {}, record: freshRecord() };
   }
 
   /** Linear part without the bias: how much this video's cues shift you vs. your average. */
@@ -103,10 +118,6 @@
       ch[head === "want" ? "nWant" : "nLike"]++;
     }
     model[head === "want" ? "nWant" : "nLike"]++;
-    if (head === "like") {
-      model.hookRated = model.hookRated || {};
-      for (const h of H.HOOK_IDS) if (x[h]) model.hookRated[h] = (model.hookRated[h] || 0) + 1;
-    }
   }
 
   /** Map a 1–5 rating to a soft "glad I watched" target. Worth it means 4–5; "OK" (3) mostly isn't. */
@@ -146,36 +157,167 @@
     return idle >= EARLY_EXIT_GRACE_DAYS * DAY_MS ? { action: "learn", y } : { action: "wait" };
   }
 
-  /** What personal evidence backs a verdict on this video. */
-  function evidence(model, hooks, channel) {
-    const ch = channelOf(model, channel, false);
-    const chRated = ch ? ch.nLike : 0;
-    const hookRated = Math.max(0, ...hooks.map((h) => (model.hookRated && model.hookRated[h]) || 0));
-    return { channelRated: chRated, hookRated, enough: chRated >= EVIDENCE.channel || hookRated >= EVIDENCE.hook };
+  // ---- Track record -----------------------------------------------------------------------
+  const freshRecord = () => ({ channels: {}, hooks: {}, videos: {} });
+  const freshGroup = () => ({ good: 0, bad: 0, n: 0, pos: 0, neg: 0, level: "none" });
+
+  // log Γ(z) (Lanczos), for the Beta distribution below.
+  const LANCZOS = [0.99999999999980993, 676.5203681218851, -1259.1392167224028, 771.32342877765313, -176.61502916214059,
+                   12.507343278686905, -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7];
+  function lgamma(z) {
+    if (z < 0.5) return Math.log(Math.PI / Math.sin(Math.PI * z)) - lgamma(1 - z);
+    z -= 1;
+    let x = LANCZOS[0];
+    for (let i = 1; i < 9; i++) x += LANCZOS[i] / (z + i);
+    const t = z + 7.5;
+    return 0.5 * Math.log(2 * Math.PI) + (z + 0.5) * Math.log(t) - t + Math.log(x);
+  }
+  /** P(θ < x) for θ ~ Beta(a, b), a, b ≥ 1 (Simpson's rule; plenty accurate for a verdict). */
+  function betaCdf(x, a, b) {
+    const lB = lgamma(a) + lgamma(b) - lgamma(a + b);
+    const f = (t) => (t <= 0 ? (a > 1 ? 0 : Math.exp(-lB)) : Math.exp((a - 1) * Math.log(t) + (b - 1) * Math.log(1 - t) - lB));
+    const n = 200, h = x / n;
+    let sum = f(0) + f(x);
+    for (let i = 1; i < n; i++) sum += f(i * h) * (i % 2 ? 4 : 2);
+    return Math.min(1, Math.max(0, (sum * h) / 3));
+  }
+  /** How sure we are that under half of this group's videos are worth it to you. */
+  const badChance = (g) => betaCdf(0.5, TRACK_PRIOR + g.good, TRACK_PRIOR + g.bad);
+
+  /** The group's level, given the one it had: entering a level takes more evidence than staying in it. */
+  function nextLevel(prev, g) {
+    const p = badChance(g);
+    const has = (lvl) => prev === lvl || (lvl === "risky" && prev === "junk");
+    if (p >= (prev === "junk" ? LEVELS.junk.exit : LEVELS.junk.enter)) return "junk";
+    if (p >= (has("risky") ? LEVELS.risky.exit : LEVELS.risky.enter)) return "risky";
+    if (1 - p >= (prev === "good" ? LEVELS.good.exit : LEVELS.good.enter)) return "good";
+    return "none";
   }
 
-  /** Everything the UI needs to show about one video. */
-  function score(model, hooks, ctx, lambda, channel) {
+  function groupsOf(model, w, create) {
+    const r = (model.record = model.record || freshRecord());
+    const out = [];
+    const key = channelKey(w.channel);
+    if (key) {
+      if (!r.channels[key] && create) r.channels[key] = { name: w.channel.trim(), ...freshGroup() };
+      if (r.channels[key]) out.push(r.channels[key]);
+    }
+    for (const h of w.hooks || []) {
+      if (!r.hooks[h] && create) r.hooks[h] = freshGroup();
+      if (r.hooks[h]) out.push(r.hooks[h]);
+    }
+    return out;
+  }
+
+  /**
+   * Your rating of video w changed from `before` to `after` (either may be null): update the track
+   * record of its channel and hooks, then their levels, once, so a change of mind can't flip-flop them.
+   */
+  function recordRating(model, w, before, after) {
+    const groups = groupsOf(model, w, after != null);
+    const add = (g, rating, sign) => {
+      if (rating == null) return;
+      const t = ratingTarget(rating);
+      g.good = Math.max(0, g.good + sign * t);
+      g.bad = Math.max(0, g.bad + sign * (1 - t));
+      g.n = Math.max(0, g.n + sign);
+      if (rating >= 4) g.pos = Math.max(0, g.pos + sign);
+      else g.neg = Math.max(0, g.neg + sign);
+    };
+    for (const g of groups) {
+      add(g, before, -1);
+      add(g, after, 1);
+      g.level = nextLevel(g.level, g);
+    }
+    const videos = model.record.videos;
+    delete videos[w.id];
+    if (after != null) {
+      videos[w.id] = after;   // re-added at the end: the oldest are forgotten first
+      const ids = Object.keys(videos);
+      if (ids.length > MAX_RATED_VIDEOS) for (const id of ids.slice(0, ids.length - MAX_RATED_VIDEOS)) delete videos[id];
+    }
+  }
+
+  /** Rebuild the track record from your rated watches (older saved data, demo data, merged entries). */
+  function rebuildRecord(model, watches) {
+    model.record = freshRecord();
+    for (const w of watches) if (w.rating != null) recordRating(model, w, null, w.rating);
+  }
+
+  /**
+   * The verdict on one video, and what it's based on:
+   *   level: "junk" | "risky" | "good" | "none"
+   *   basis: {kind: "you", rating} | {kind: "channel", ...group} | {kind: "hook", hook, ...group} | null
+   */
+  function verdict(model, { id, hooks = [], channel, durationSec, worthIt }) {
+    const r = model.record || freshRecord();
+    const regretMin = durationSec > 0 ? (durationSec / 60) * (1 - worthIt) : null;
+    const mine = id != null ? r.videos[id] : undefined;
+    // 1. Your own rating of this very video always wins.
+    if (mine != null && mine !== 3) return { level: mine <= 2 ? "junk" : "good", basis: { kind: "you", rating: mine }, regretMin };
+    // 2. The channel's track record, if it has one.
+    const ch = r.channels[channelKey(channel)];
+    let level = "none", basis = null, capped = false;
+    if (ch && ch.level !== "none") {
+      level = ch.level;
+      basis = { kind: "channel", ...ch };
+    } else {
+      // 3. Otherwise the worst hook's track record, across all the channels you've rated it on.
+      const order = { junk: 2, risky: 1 };
+      for (const h of hooks) {
+        const g = r.hooks[h];
+        if (g && order[g.level] && (!basis || order[g.level] > order[level])) {
+          level = g.level;
+          basis = { kind: "hook", hook: h, ...g };
+        }
+      }
+      // A hook alone doesn't blur a channel you've enjoyed before.
+      if (level === "junk" && ch && ch.pos > 0) {
+        level = "risky";
+        capped = true;
+      }
+    }
+    // 4. Minutes matter: a long video you'd likely regret is junk food; a tiny one is only risky.
+    let long = false, short = false;
+    if (level === "risky" && regretMin != null && regretMin >= LONG_REGRET_MIN) {
+      level = "junk";
+      long = true;
+    } else if (level === "junk" && regretMin != null && regretMin < SHORT_REGRET_MIN) {
+      level = "risky";
+      short = true;
+    }
+    return { level, basis, regretMin, long, short, capped };
+  }
+
+  /**
+   * Everything the UI needs to show about one video. video: {id, durationSec} for the verdict, when
+   * known (your own rating of it, and how many minutes it would cost you).
+   */
+  function score(model, hooks, ctx, lambda, channel, video = {}) {
     const x = features(hooks, ctx);
     const ch = channelOf(model, channel, false);
     const wantLift = lift(model.want, x) + (ch ? ch.want : 0);
     const likeLift = lift(model.like, x) + (ch ? ch.like : 0);
     const likeLogit = model.like.bias + likeLift;
     const gap = Math.max(0, wantLift - likeLift);
-    const ev = evidence(model, hooks, channel);
+    const worthIt = sigmoid(likeLogit);
+    const v = verdict(model, { id: video.id, hooks, channel, durationSec: video.durationSec, worthIt });
     return {
       pWant: sigmoid(model.want.bias + wantLift),
       pull: Math.exp(wantLift),                 // × your usual click odds
-      worthIt: sigmoid(likeLogit),              // chance you'll be glad you watched
+      worthIt,                                  // chance you'll be glad you watched
       gap,
-      evidence: ev,
-      junk: hooks.length > 0 && gap >= JUNK_GAP && ev.enough && sigmoid(likeLogit) < WORTH_OK,
+      ...v,
+      junk: v.level === "junk",
+      risky: v.level === "risky",
+      good: v.level === "good",
       rank: likeLogit - (lambda == null ? 1 : lambda) * gap,
     };
   }
 
-  const api = { FEATURES, PRIOR, DEEP_SESSION, JUNK_GAP, WORTH_OK, EVIDENCE, sigmoid, isLateNight, features, freshModel,
-                lift, update, ratingTarget, implicitTarget, implicitDecision, evidence, score, channelKey,
+  const api = { FEATURES, PRIOR, DEEP_SESSION, LEVELS, LONG_REGRET_MIN, SHORT_REGRET_MIN, sigmoid, isLateNight, features,
+                freshModel, lift, update, ratingTarget, implicitTarget, implicitDecision, score, channelKey,
+                betaCdf, badChance, nextLevel, recordRating, rebuildRecord, verdict,
                 RESUME_DAYS, EARLY_EXIT_GRACE_DAYS, DAY_MS };
   root.WorthIt = Object.assign(root.WorthIt || {}, api);
   if (typeof module !== "undefined" && module.exports) module.exports = { ...H, ...api };

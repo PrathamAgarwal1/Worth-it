@@ -115,6 +115,7 @@
         }
       }
     }
+    W.rebuildRecord(model, watches);
     return { model, stats, watches };
   }
 

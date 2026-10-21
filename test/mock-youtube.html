@@ -20,7 +20,10 @@
     #contents { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 24px 16px; padding: 24px; }
     ytd-rich-item-renderer, ytd-compact-video-renderer { display: block; }
     ytd-thumbnail { display: block; border-radius: 12px; overflow: hidden; aspect-ratio: 16 / 9; }
+    ytd-thumbnail { position: relative; }
     ytd-thumbnail img { width: 100%; height: 100%; display: block; object-fit: cover; }
+    ytd-thumbnail-overlay-time-status-renderer { position: absolute; right: 6px; bottom: 6px; padding: 1px 4px; border-radius: 4px;
+      background: rgba(0, 0, 0, 0.8); color: #fff; font: 500 12px/18px Roboto, Arial, sans-serif; }
     #details h3 { font-size: 16px; margin: 10px 0 4px; line-height: 1.35; }
     #details a { color: inherit; text-decoration: none; }
     .ch, .ch a { color: #606060; font-size: 14px; text-decoration: none; }
@@ -61,7 +64,8 @@
       ["Warning: Your Phone Is Doing This Right Now", "ClickVortex", 1], ["Chess Endgames for Club Players", "Open Lectures", 0],
       ["The Most Insane Plot Twist Of All Time", "Curious Science", 1], ["Painting a Watercolour Sunset", "Workshop Notes", 0],
       ["Leaked Footage Before It's Deleted", "ViralVault", 1], ["A Short History of the Printing Press", "Open Lectures", 0],
-    ].map(([title, channel, loud], i) => ({ id: `mockvid${String(i).padStart(4, "0")}`, title, channel, loud }));
+    ].map(([title, channel, loud], i) => ({ id: `mockvid${String(i).padStart(4, "0")}`, title, channel, loud,
+           length: ["12:41", "18:03", "9:57", "24:10", "1:12:05", "31:22", "0:48", "1:02:44", "16:30", "8:15"][i % 10] }));
 
     const thumb = (v) => {
       const [a, b] = v.loud ? ["#ff2a1a", "#ffd400"] : ["#5f7a8a", "#a9b8a6"];
@@ -70,7 +74,8 @@
         <rect width='16' height='9' fill='url(#g)'/><text x='8' y='5.6' font-size='2' text-anchor='middle' fill='white' font-family='Arial'>${v.id.slice(-2)}</text></svg>`);
     };
     const card = (v, tag) => `<${tag}><div id="dismissible">
-        <ytd-thumbnail><a id="thumbnail" href="/watch?v=${v.id}"><img src="${thumb(v)}" alt=""></a></ytd-thumbnail>
+        <ytd-thumbnail><a id="thumbnail" href="/watch?v=${v.id}"><img src="${thumb(v)}" alt=""></a>
+          <ytd-thumbnail-overlay-time-status-renderer><span id="text">${v.length}</span></ytd-thumbnail-overlay-time-status-renderer></ytd-thumbnail>
         <div id="details"><h3><a id="video-title-link" href="/watch?v=${v.id}" title="${v.title.replace(/"/g, "&quot;")}">
           <yt-formatted-string id="video-title">${v.title}</yt-formatted-string></a></h3>
           <div class="ch"><ytd-channel-name><a href="/@${v.channel.replace(/\s/g, "")}">${v.channel}</a></ytd-channel-name></div></div>
